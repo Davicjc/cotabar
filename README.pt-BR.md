@@ -67,6 +67,10 @@ sudo ./instalar.sh --root    # também o timer para IAs logadas como root (ex.: 
 O applet entra na barra na hora, sem reiniciar o Cinnamon.
 Desinstalar: `./instalar.sh --remove` (com `sudo` se usou `--root`).
 
+**Atualizar:** o menu tem **Procurar atualização**. Quando sai versão nova, vira
+**Atualizar para vX** — um clique baixa do GitHub e reinstala (pede a senha uma vez se você
+instalou o timer do root). Pelo terminal: `~/.local/share/cotabar/atualizar.sh`.
+
 Requisitos: Cinnamon (testado no 6.6 / Linux Mint 22) e Python 3.10+.
 
 ### Configurações

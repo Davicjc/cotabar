@@ -41,12 +41,14 @@ const TEXTOS = {
         "Not found on this machine": "Não encontrado nesta máquina",
         "Last good reading %s — ": "Última leitura boa %s — ",
         "Refresh now": "Atualizar agora",
+        // [atualizador-github]
         "Check for updates": "Procurar atualização",
         "Checking for updates…": "Procurando atualização…",
         "Update to v%s": "Atualizar para v%s",
         "Up to date (v%s)": "Em dia (v%s)",
         "Updating…": "Atualizando…",
         "Update failed — see %s": "A atualização falhou — veja %s",
+        // [/atualizador-github]
         "resets %s": "reinicia %s",
         "in %s": "em %s",
         "never": "nunca", "now": "agora", "%s ago": "há %s",
@@ -76,12 +78,14 @@ const TEXTOS = {
         "Not found on this machine": "No se encontró en este equipo",
         "Last good reading %s — ": "Última lectura buena %s — ",
         "Refresh now": "Actualizar ahora",
+        // [atualizador-github]
         "Check for updates": "Buscar actualizaciones",
         "Checking for updates…": "Buscando actualizaciones…",
         "Update to v%s": "Actualizar a v%s",
         "Up to date (v%s)": "Al día (v%s)",
         "Updating…": "Actualizando…",
         "Update failed — see %s": "La actualización falló — mira %s",
+        // [/atualizador-github]
         "resets %s": "se reinicia %s",
         "in %s": "en %s",
         "never": "nunca", "now": "ahora", "%s ago": "hace %s",
@@ -755,7 +759,13 @@ class CotaBarApplet extends Applet.Applet {
 
     on_applet_removed_from_panel() {
         this._removido = true;
-        for (const k of ["_loopColeta", "_loopLeitura", "_loopAtualizacao"]) {
+        // [atualizador-github]
+        if (this._loopAtualizacao) {
+            GLib.source_remove(this._loopAtualizacao);
+            this._loopAtualizacao = null;
+        }
+        // [/atualizador-github]
+        for (const k of ["_loopColeta", "_loopLeitura"]) {
             if (this[k]) {
                 GLib.source_remove(this[k]);
                 this[k] = null;

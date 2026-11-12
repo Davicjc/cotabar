@@ -69,6 +69,10 @@ sudo ./instalar.sh --root    # también un temporizador para IAs con sesión com
 El applet aparece en el panel al momento, sin reiniciar Cinnamon.
 Desinstalar: `./instalar.sh --remove` (con `sudo` si usaste `--root`).
 
+**Actualizar:** el menú tiene **Buscar actualizaciones**. Cuando hay una versión nueva pasa a
+**Actualizar a vX** — un clic la descarga de GitHub y la reinstala (pide tu contraseña una vez si
+instalaste el temporizador de root). Desde la terminal: `~/.local/share/cotabar/atualizar.sh`.
+
 Requisitos: Cinnamon (probado en 6.6 / Linux Mint 22) y Python 3.10+.
 
 ### Configuración

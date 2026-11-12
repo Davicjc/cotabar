@@ -69,6 +69,10 @@ sudo ./instalar.sh --root    # also a timer for AIs signed in as root (e.g. `sud
 The applet shows up on the panel right away — no Cinnamon restart.
 Uninstall: `./instalar.sh --remove` (with `sudo` if you used `--root`).
 
+**Updates:** the menu has **Check for updates**. When there is a new version it turns into
+**Update to vX** — one click pulls it from GitHub and reinstalls (it asks for your password once
+if you installed the root timer). From a terminal: `~/.local/share/cotabar/atualizar.sh`.
+
 Requirements: Cinnamon (tested on 6.6 / Linux Mint 22) and Python 3.10+.
 
 ### Settings

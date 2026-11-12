@@ -60,6 +60,7 @@ git clone https://github.com/Davicjc/cotabar.git
 cd cotabar
 ./instalar.sh            # applet + coletor para o seu usuário
 sudo ./instalar.sh --root   # também o timer que lê as IAs logadas como root
+# já está como root (sem sudo)? diga quem é o dono do painel: --usuario SEU_USUARIO
 ```
 
 O applet entra no painel na hora (sem reiniciar o Cinnamon). Para tirar:

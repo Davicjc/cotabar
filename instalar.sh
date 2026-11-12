@@ -4,26 +4,38 @@
 #   sudo ./instalar.sh --root   também instala o coletor do sistema e o timer
 #                               que lê as IAs logadas na conta root
 #   ./instalar.sh --remover  (ou sudo ... --remover) desfaz
+#   --usuario NOME           dono do painel, quando já está como root sem sudo
 set -euo pipefail
 
 UUID="cotabar@davicjc"
 AQUI="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 MODO="usuario"
 REMOVER=0
-for a in "$@"; do
-  case "$a" in
+ALVO=""
+while [[ $# -gt 0 ]]; do
+  case "$1" in
     --root) MODO="root" ;;
     --remover) REMOVER=1 ;;
+    --usuario) ALVO="${2:-}"; shift ;;
+    --usuario=*) ALVO="${1#*=}" ;;
     -h|--help) sed -n 2,7p "$0"; exit 0 ;;
-    *) echo "opção desconhecida: $a" >&2; exit 2 ;;
+    *) echo "opção desconhecida: $1" >&2; exit 2 ;;
   esac
+  shift
 done
 
-# Usuário dono do painel: quem chamou o sudo, ou você mesmo.
+# Usuário dono do painel: --usuario, quem chamou o sudo, o dono da sessão, ou você mesmo.
 if [[ $EUID -eq 0 ]]; then
-  ALVO="${SUDO_USER:-}"
-  [[ -n "$ALVO" && "$ALVO" != root ]] || { echo "rode com sudo a partir do seu usuário" >&2; exit 1; }
+  if [[ -z "$ALVO" ]]; then
+    ALVO="${SUDO_USER:-}"
+    [[ "$ALVO" == root ]] && ALVO=""
+    [[ -n "$ALVO" ]] || ALVO="$(logname 2>/dev/null || true)"
+    [[ "$ALVO" == root ]] && ALVO=""
+  fi
+  [[ -n "$ALVO" ]] || { echo "não sei quem é o dono do painel: use --usuario NOME" >&2; exit 1; }
+  id -u "$ALVO" >/dev/null 2>&1 || { echo "usuário não existe: $ALVO" >&2; exit 1; }
 else
+  [[ -z "$ALVO" || "$ALVO" == "$(id -un)" ]] || { echo "--usuario de outra pessoa precisa de sudo" >&2; exit 1; }
   ALVO="$(id -un)"
   [[ "$MODO" == usuario ]] || { echo "--root precisa de sudo" >&2; exit 1; }
 fi

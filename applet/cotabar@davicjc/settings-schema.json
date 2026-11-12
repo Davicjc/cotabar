@@ -1,31 +1,69 @@
 {
   "layout": {
     "type": "layout",
-    "pages": ["pagina-ias", "pagina-barra"],
+    "pages": [
+      "pagina-ias",
+      "pagina-barra"
+    ],
     "pagina-ias": {
       "type": "page",
       "title": "IAs",
-      "sections": ["secao-ias", "secao-coleta"]
+      "sections": [
+        "secao-ias",
+        "secao-coleta",
+        "secao-sobre-ias"
+      ]
     },
     "pagina-barra": {
       "type": "page",
       "title": "Barra",
-      "sections": ["secao-barra"]
+      "sections": [
+        "secao-barra",
+        "secao-sobre-barra"
+      ]
     },
     "secao-ias": {
       "type": "section",
       "title": "Quais IAs aparecem",
-      "keys": ["ia-claude", "ia-agy", "ia-codex", "ia-copilot", "ocultar-ausentes"]
+      "keys": [
+        "ia-claude",
+        "ia-agy",
+        "ia-codex",
+        "ia-copilot",
+        "ocultar-ausentes"
+      ]
     },
     "secao-coleta": {
       "type": "section",
       "title": "Coleta",
-      "keys": ["coletar", "intervalo"]
+      "keys": [
+        "coletar",
+        "intervalo"
+      ]
     },
     "secao-barra": {
       "type": "section",
       "title": "Na barra",
-      "keys": ["mostrar", "letra-periodo"]
+      "keys": [
+        "mostrar",
+        "letra-periodo"
+      ]
+    },
+    "secao-sobre-ias": {
+      "type": "section",
+      "title": "Sobre",
+      "keys": [
+        "assinatura-ias",
+        "github-ias"
+      ]
+    },
+    "secao-sobre-barra": {
+      "type": "section",
+      "title": "Sobre",
+      "keys": [
+        "assinatura-barra",
+        "github-barra"
+      ]
     }
   },
   "ia-claude": {
@@ -84,5 +122,23 @@
     "type": "switch",
     "default": true,
     "description": "Letra do período depois da % (H horas, D dia, S semana, M mês)"
+  },
+  "assinatura-ias": {
+    "type": "label",
+    "description": "CotaBar 0.2.0 · by davicjc"
+  },
+  "github-ias": {
+    "type": "button",
+    "description": "Abrir no GitHub",
+    "callback": "abrirGithub"
+  },
+  "assinatura-barra": {
+    "type": "label",
+    "description": "CotaBar 0.2.0 · by davicjc"
+  },
+  "github-barra": {
+    "type": "button",
+    "description": "Abrir no GitHub",
+    "callback": "abrirGithub"
   }
 }

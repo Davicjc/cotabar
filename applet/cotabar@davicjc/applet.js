@@ -469,6 +469,10 @@ class CotaBarApplet extends Applet.Applet {
         return item;
     }
 
+    abrirGithub() {
+        Gio.AppInfo.launch_default_for_uri(this.metadata.url || "https://github.com/Davicjc/cotabar", null);
+    }
+
     on_applet_clicked() {
         this.menu.toggle();
     }

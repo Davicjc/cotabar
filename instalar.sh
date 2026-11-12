@@ -56,12 +56,19 @@ painel() {  # liga/desliga o applet no painel sem reiniciar o Cinnamon
   como_alvo python3 -I - "$UUID" "$1" <<'PY'
 import ast, subprocess, sys
 uuid, acao = sys.argv[1], sys.argv[2]
-atual = ast.literal_eval(subprocess.check_output(
-    ["gsettings", "get", "org.cinnamon", "enabled-applets"], text=True).strip() or "[]")
+
+def lista(chave):  # lista vazia vem como "@as []"
+    txt = subprocess.check_output(["gsettings", "get", "org.cinnamon", chave], text=True).strip()
+    return ast.literal_eval(txt.replace("@as ", "", 1) or "[]")
+
+atual = lista("enabled-applets")
 tem = [x for x in atual if x.split(":")[3] == uuid]
 if acao == "ligar" and not tem:
+    # Primeiro painel que existe (quem recriou o painel não tem mais o panel1).
+    paineis = lista("panels-enabled")
+    painel = f"panel{paineis[0].split(':')[0]}" if paineis else "panel1"
     prox = max([int(x.split(":")[4]) for x in atual if x.split(":")[4].isdigit()] + [0]) + 1
-    atual.append(f"panel1:right:0:{uuid}:{prox}")
+    atual.append(f"{painel}:right:0:{uuid}:{prox}")
 elif acao == "desligar" and tem:
     atual = [x for x in atual if x not in tem]
 else:

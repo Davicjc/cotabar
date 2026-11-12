@@ -7,7 +7,7 @@ O CotaBar é um applet para a barra do Linux Mint / **Cinnamon** que mostra o us
 **Claude Code**, **Codex (ChatGPT)**, **Antigravity (Gemini)** e **GitHub Copilot**:
 a janela curta (5 horas / dia) e a longa (semana / mês), lado a lado.
 
-![CotaBar na barra e o menu aberto](docs/cotabar.png)
+![CotaBar na barra do Cinnamon com o menu aberto](docs/screenshot.png)
 
 [![testes](https://github.com/Davicjc/cotabar/actions/workflows/testes.yml/badge.svg)](https://github.com/Davicjc/cotabar/actions/workflows/testes.yml)
 ![Cinnamon](https://img.shields.io/badge/Cinnamon-6.x-87a556)

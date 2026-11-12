@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
-# Instala o CotaBar.
-#   ./instalar.sh            applet + coletor só para o seu usuário
-#   sudo ./instalar.sh --root   também instala o coletor do sistema e o timer
-#                               que lê as IAs logadas na conta root
-#   ./instalar.sh --remover  (ou sudo ... --remover) desfaz
-#   --usuario NOME           dono do painel, quando já está como root sem sudo
+# Installs CotaBar.
+#   ./instalar.sh                applet + collector for your user only
+#   sudo ./instalar.sh --root    also the system collector + timer that reads
+#                                the AIs signed in on the root account
+#   ./instalar.sh --remove       undo (use sudo if you installed with --root)
+#   --user NAME                  panel owner, when already root without sudo
 set -euo pipefail
 
 UUID="cotabar@davicjc"
@@ -15,11 +15,11 @@ ALVO=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --root) MODO="root" ;;
-    --remover) REMOVER=1 ;;
-    --usuario) ALVO="${2:-}"; shift ;;
-    --usuario=*) ALVO="${1#*=}" ;;
+    --remove|--remover) REMOVER=1 ;;
+    --user|--usuario) ALVO="${2:-}"; shift ;;
+    --user=*|--usuario=*) ALVO="${1#*=}" ;;
     -h|--help) sed -n 2,7p "$0"; exit 0 ;;
-    *) echo "opção desconhecida: $1" >&2; exit 2 ;;
+    *) echo "unknown option: $1" >&2; exit 2 ;;
   esac
   shift
 done
@@ -32,12 +32,12 @@ if [[ $EUID -eq 0 ]]; then
     [[ -n "$ALVO" ]] || ALVO="$(logname 2>/dev/null || true)"
     [[ "$ALVO" == root ]] && ALVO=""
   fi
-  [[ -n "$ALVO" ]] || { echo "não sei quem é o dono do painel: use --usuario NOME" >&2; exit 1; }
-  id -u "$ALVO" >/dev/null 2>&1 || { echo "usuário não existe: $ALVO" >&2; exit 1; }
+  [[ -n "$ALVO" ]] || { echo "cannot tell who owns the panel: use --user NAME" >&2; exit 1; }
+  id -u "$ALVO" >/dev/null 2>&1 || { echo "no such user: $ALVO" >&2; exit 1; }
 else
-  [[ -z "$ALVO" || "$ALVO" == "$(id -un)" ]] || { echo "--usuario de outra pessoa precisa de sudo" >&2; exit 1; }
+  [[ -z "$ALVO" || "$ALVO" == "$(id -un)" ]] || { echo "--user for someone else needs sudo" >&2; exit 1; }
   ALVO="$(id -un)"
-  [[ "$MODO" == usuario ]] || { echo "--root precisa de sudo" >&2; exit 1; }
+  [[ "$MODO" == usuario ]] || { echo "--root needs sudo" >&2; exit 1; }
 fi
 ALVO_UID="$(id -u "$ALVO")"
 ALVO_HOME="$(getent passwd "$ALVO" | cut -d: -f6)"
@@ -73,13 +73,14 @@ PY
 if [[ $REMOVER -eq 1 ]]; then
   painel desligar || true
   rm -rf "$DESTINO"
+  rm -f "$ALVO_HOME"/.local/share/locale/*/LC_MESSAGES/"$UUID".mo
   if [[ $EUID -eq 0 ]]; then
     systemctl disable --now cotabar-root.timer 2>/dev/null || true
     rm -f /etc/systemd/system/cotabar-root.{service,timer} /usr/local/bin/cotabar-coletor
     systemctl daemon-reload
     rm -rf /var/lib/cotabar
   fi
-  echo "CotaBar removido."
+  echo "CotaBar removed."
   exit 0
 fi
 
@@ -88,6 +89,19 @@ como_alvo mkdir -p "$DESTINO"
 como_alvo cp "$AQUI/applet/$UUID/"{applet.js,metadata.json,settings-schema.json,stylesheet.css} "$DESTINO/"
 [[ -f "$AQUI/applet/$UUID/icon.png" ]] && como_alvo cp "$AQUI/applet/$UUID/icon.png" "$DESTINO/"
 como_alvo install -m 0755 "$AQUI/coletor/cotabar-coletor" "$DESTINO/cotabar-coletor"
+
+# Traduções da janela de configurações (o Cinnamon procura em ~/.local/share/locale)
+LOCALE="$ALVO_HOME/.local/share/locale"
+for po in "$AQUI/applet/$UUID/po/"*.po; do
+  [[ -e "$po" ]] || continue
+  lang="$(basename "$po" .po)"
+  como_alvo mkdir -p "$LOCALE/$lang/LC_MESSAGES"
+  if command -v msgfmt >/dev/null; then
+    como_alvo msgfmt -o "$LOCALE/$lang/LC_MESSAGES/$UUID.mo" "$po"
+  else
+    como_alvo python3 -I "$AQUI/tools/po2mo.py" "$po" "$LOCALE/$lang/LC_MESSAGES/$UUID.mo"
+  fi
+done
 
 if [[ "$MODO" == root ]]; then
   # Fora do alcance do usuário: o root executa este arquivo.
@@ -103,4 +117,4 @@ painel ligar
 como_alvo dbus-send --session --dest=org.Cinnamon --type=method_call /org/Cinnamon \
   org.Cinnamon.ReloadXlet string:"$UUID" string:APPLET >/dev/null 2>&1 || true
 
-echo "CotaBar instalado ($MODO)."
+echo "CotaBar installed (${MODO/usuario/user})."

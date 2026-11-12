@@ -1,5 +1,6 @@
-// CotaBar — applet do Cinnamon que mostra quanto da cota de cada IA já foi usado.
-// Só lê os JSON gerados pelo cotabar-coletor; nunca vê token.
+// CotaBar — Cinnamon applet showing how much of each AI's usage limit is used.
+// It only reads the JSON written by cotabar-coletor; it never sees a token.
+// (Comentários do código em português.)
 
 const Applet = imports.ui.applet;
 const PopupMenu = imports.ui.popupMenu;
@@ -23,6 +24,147 @@ const MARCA = {
 };
 const ORDEM = ["claude", "agy", "codex", "copilot"];
 const PESO_ESTADO = { ok: 3, erro: 1, ausente: 0 };
+
+// ------------------------------------------------------------ idiomas
+// Chave = inglês. Só o que muda por idioma; o resto cai no inglês.
+const TEXTOS = {
+    pt: {
+        "CotaBar — AI usage limits": "CotaBar — uso das cotas de IA",
+        "CotaBar — no data yet": "CotaBar — nenhum dado ainda",
+        "Outer ring: week/month · inner: hours/day": "Anel de fora: semana/mês · de dentro: horas/dia",
+        "no data": "sem dados",
+        "No readings yet. Check that cotabar-coletor is installed.": "Nenhuma leitura ainda. Confira se o cotabar-coletor está instalado.",
+        "Not found on this machine": "Não encontrado nesta máquina",
+        "Last good reading %s — ": "Última leitura boa %s — ",
+        "Refresh now": "Atualizar agora",
+        "resets %s": "reinicia %s",
+        "in %s": "em %s",
+        "never": "nunca", "now": "agora", "%s ago": "há %s",
+        "hours": "horas", "day": "dia", "week": "semana", "month": "mês",
+        "Hours": "Horas", "Day": "Dia", "Week": "Semana", "Month": "Mês",
+        "Session": "Sessão", "Extra usage": "Uso extra", "Premium requests": "Premium",
+        "Chat": "Chat", "Completions": "Autocompletar", "Credits": "Créditos",
+        "%s of %s left": "%s de %s restantes",
+        "Session expired — use the tool once to renew it": "Sessão vencida — use a ferramenta uma vez para renovar",
+        "Too many requests — trying again later": "Muitas consultas — tentando de novo depois",
+        "Server error (%s)": "Erro do servidor (%s)",
+        "No connection": "Sem conexão",
+        "Invalid response": "Resposta inválida",
+        "Could not read the credentials": "Não consegui ler as credenciais",
+        "Token expired — use %s once to renew it": "Token vencido — use o %s uma vez para renovar",
+        "No limits reported": "Nenhum limite informado",
+        "Internal error": "Erro interno",
+        "educational": "educacional", "free": "grátis", "personal": "pessoal",
+        "letters": "H horas · D dia · S semana · M mês",
+    },
+    es: {
+        "CotaBar — AI usage limits": "CotaBar — uso de las cuotas de IA",
+        "CotaBar — no data yet": "CotaBar — aún no hay datos",
+        "Outer ring: week/month · inner: hours/day": "Anillo exterior: semana/mes · interior: horas/día",
+        "no data": "sin datos",
+        "No readings yet. Check that cotabar-coletor is installed.": "Aún no hay lecturas. Revisa que cotabar-coletor esté instalado.",
+        "Not found on this machine": "No se encontró en este equipo",
+        "Last good reading %s — ": "Última lectura buena %s — ",
+        "Refresh now": "Actualizar ahora",
+        "resets %s": "se reinicia %s",
+        "in %s": "en %s",
+        "never": "nunca", "now": "ahora", "%s ago": "hace %s",
+        "hours": "horas", "day": "día", "week": "semana", "month": "mes",
+        "Hours": "Horas", "Day": "Día", "Week": "Semana", "Month": "Mes",
+        "Session": "Sesión", "Extra usage": "Uso extra", "Premium requests": "Premium",
+        "Chat": "Chat", "Completions": "Autocompletado", "Credits": "Créditos",
+        "%s of %s left": "quedan %s de %s",
+        "Session expired — use the tool once to renew it": "Sesión vencida — usa la herramienta una vez para renovarla",
+        "Too many requests — trying again later": "Demasiadas consultas — se reintenta más tarde",
+        "Server error (%s)": "Error del servidor (%s)",
+        "No connection": "Sin conexión",
+        "Invalid response": "Respuesta inválida",
+        "Could not read the credentials": "No se pudieron leer las credenciales",
+        "Token expired — use %s once to renew it": "Token vencido — usa %s una vez para renovarlo",
+        "No limits reported": "No se informaron límites",
+        "Internal error": "Error interno",
+        "educational": "educativo", "free": "gratis", "personal": "personal",
+        "letters": "H horas · D día · S semana · M mes",
+    },
+    en: {
+        "letters": "H hours · D day · W week · M month",
+    },
+};
+// Letra do período na barra: em inglês semana é W.
+const LETRAS = { en: { H: "H", D: "D", S: "W", M: "M" } };
+const DIAS = {
+    en: ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"],
+    pt: ["dom", "seg", "ter", "qua", "qui", "sex", "sáb"],
+    es: ["dom", "lun", "mar", "mié", "jue", "vie", "sáb"],
+};
+
+let IDIOMA = "en";
+
+function idiomaDoSistema() {
+    for (const nome of GLib.get_language_names()) {
+        const base = nome.split(/[_.@]/)[0].toLowerCase();
+        if (TEXTOS[base]) return base;
+    }
+    return "en";
+}
+
+function t(chave, ...args) {
+    let s = (TEXTOS[IDIOMA] && TEXTOS[IDIOMA][chave]) || chave;
+    for (const a of args) s = s.replace("%s", a);
+    return s;
+}
+
+const tr = t;  // para funções que já usam "t" como variável local
+
+function letraPeriodo(p) {
+    return (LETRAS[IDIOMA] && LETRAS[IDIOMA][p]) || p;
+}
+
+const FERRAMENTA = { claude: "Claude Code", agy: "agy", codex: "Codex", copilot: "gh" };
+
+function fmtErro(p) {
+    switch (p.erro_codigo) {
+    case "auth": return t("Session expired — use the tool once to renew it");
+    case "rate": return t("Too many requests — trying again later");
+    case "http": return t("Server error (%s)", (p.erro || "").replace(/^HTTP /, ""));
+    case "net": return t("No connection");
+    case "invalid": return t("Invalid response");
+    case "read": return t("Could not read the credentials");
+    case "expired": return t("Token expired — use %s once to renew it", FERRAMENTA[p.id] || p.nome);
+    case "nolimits": return t("No limits reported");
+    case "internal": return t("Internal error");
+    default: return p.erro || t("Internal error");  // coletor antigo
+    }
+}
+
+const NOME_TIPO = { session: "Session", extra: "Extra usage", premium: "Premium requests",
+                    chat: "Chat", completions: "Completions", credits: "Credits" };
+const NOME_PERIODO = { H: "hours", D: "day", S: "week", M: "month" };
+
+function versaoAntiga(v, minima) {
+    const p = String(v || "0").split(".").map(n => parseInt(n, 10) || 0);
+    for (let i = 0; i < minima.length; i++) {
+        if ((p[i] || 0) !== minima[i]) return (p[i] || 0) < minima[i];
+    }
+    return false;
+}
+
+// Rótulo de uma janela no idioma escolhido, ex.: "Gemini · semana", "Sessão · 5 h".
+function rotulo(j, versaoColetor) {
+    // Coletor antes da 0.3 não manda grupo/horas: usa o rótulo pronto dele.
+    if (!j.periodo || versaoAntiga(versaoColetor, [0, 3])) return j.rotulo || "";
+    // Leitura velha reaproveitada pelo coletor novo também não tem grupo.
+    if (!j.grupo && !j.tipo_limite && j.rotulo && j.rotulo.indexOf(" · ") >= 0) return j.rotulo;
+    const per = j.periodo === "H" && j.horas ? `${j.horas} h` : t(NOME_PERIODO[j.periodo] || "week");
+    const nome = j.tipo_limite ? t(NOME_TIPO[j.tipo_limite] || j.tipo_limite) : j.grupo;
+    if (nome) return `${nome} · ${per}`;
+    return per.charAt(0).toUpperCase() + per.slice(1);
+}
+
+function detalhe(j) {
+    if (j.total) return t("%s of %s left", String(Math.round(j.restante || 0)), String(Math.round(j.total)));
+    return j.detalhe || "";
+}
 
 function lerTexto(caminho) {
     try {
@@ -73,6 +215,7 @@ function juntar(lerUsuario) {
             try { dados = JSON.parse(lerTexto(arq) || "null"); } catch (e) { continue; }
             if (!dados || !Array.isArray(dados.provedores)) continue;
             for (const p of dados.provedores) {
+                p._coletor = dados.coletor;
                 const atual = melhor[p.id];
                 const pesoNovo = peso(p);
                 const pesoAtual = atual ? peso(atual) : -99;
@@ -100,8 +243,6 @@ function periodo(j) {
     return j.tipo === "curta" ? "H" : "S";  // JSON de coletor antigo
 }
 
-const NOME_PERIODO = { H: "horas", D: "dia", S: "semana", M: "mês" };
-
 function escapar(t) {
     return GLib.markup_escape_text(String(t), -1);
 }
@@ -113,20 +254,18 @@ function itemFixo() {
     return item;
 }
 
-const PLANOS = { free_educational_quota: "educacional", free_limited_copilot: "grátis", consumer: "pessoal" };
+const PLANOS = { free_educational_quota: "educational", free_limited_copilot: "free", consumer: "personal" };
 
 function fmtPlano(plano) {
     if (!plano) return "";
     const s = String(plano);
-    if (PLANOS[s]) return PLANOS[s];
+    if (PLANOS[s]) return t(PLANOS[s]);
     return s.replace(/_quota$/, "").replace(/_/g, " ").replace(/^./, c => c.toUpperCase());
 }
 
 function fmtPct(v) {
     return v === null || v === undefined ? "–" : Math.round(v) + "%";
 }
-
-const DIAS = ["dom", "seg", "ter", "qua", "qui", "sex", "sáb"];
 
 function fmtReinicio(iso) {
     const t = tempo(iso);
@@ -140,18 +279,19 @@ function fmtReinicio(iso) {
     const dt = new Date(t);
     const hora = `${String(dt.getHours()).padStart(2, "0")}:${String(dt.getMinutes()).padStart(2, "0")}`;
     const hoje = new Date(agora).toDateString() === dt.toDateString();
-    const quando = hoje ? hora : (d >= 6 ? `${dt.getDate()}/${dt.getMonth() + 1}` : `${DIAS[dt.getDay()]} ${hora}`);
-    return `em ${falta} · ${quando}`;
+    const data = IDIOMA === "en" ? `${dt.getMonth() + 1}/${dt.getDate()}` : `${dt.getDate()}/${dt.getMonth() + 1}`;
+    const quando = hoje ? hora : (d >= 6 ? data : `${(DIAS[IDIOMA] || DIAS.en)[dt.getDay()]} ${hora}`);
+    return `${tr("in %s", falta)} · ${quando}`;
 }
 
 function fmtHaQuanto(iso) {
     const t = tempo(iso);
-    if (!t) return "nunca";
+    if (!t) return tr("never");
     const min = Math.round((Date.now() - t) / 60000);
-    if (min < 1) return "agora";
-    if (min < 60) return `há ${min} min`;
+    if (min < 1) return tr("now");
+    if (min < 60) return tr("%s ago", `${min} min`);
     const h = Math.round(min / 60);
-    return h < 48 ? `há ${h} h` : `há ${Math.round(h / 24)} d`;
+    return tr("%s ago", h < 48 ? `${h} h` : `${Math.round(h / 24)} d`);
 }
 
 function classeNivel(v) {
@@ -232,6 +372,8 @@ class CotaBarApplet extends Applet.Applet {
             this.settings.bind("ia-" + id, "ia_" + id, () => { this._coletar(); this._ler(); });
         }
         this.settings.bind("letra-periodo", "letraPeriodo", () => this._desenhar());
+        this.settings.bind("idioma", "idioma", () => { this._aplicarIdioma(); this._desenhar(); });
+        this._aplicarIdioma();
         this.settings.bind("intervalo", "intervalo", () => this._reagendar(false));
         this.settings.bind("mostrar", "mostrar", () => this._desenhar());
         this.settings.bind("ocultar-ausentes", "ocultarAusentes", () => this._desenhar());
@@ -239,7 +381,7 @@ class CotaBarApplet extends Applet.Applet {
         const vertical = orientation === St.Side.LEFT || orientation === St.Side.RIGHT;
         this.caixa = new St.BoxLayout({ vertical, style_class: "cotabar-caixa" });
         this.actor.add_child(this.caixa);
-        this.set_applet_tooltip("CotaBar — uso das cotas de IA");
+        this.set_applet_tooltip(t("CotaBar — AI usage limits"));
 
         this.menuManager = new PopupMenu.PopupMenuManager(this);
         this.menu = new Applet.AppletPopupMenu(this, orientation);
@@ -253,6 +395,10 @@ class CotaBarApplet extends Applet.Applet {
             this._ler();
             return GLib.SOURCE_CONTINUE;
         });
+    }
+
+    _aplicarIdioma() {
+        IDIOMA = this.idioma && this.idioma !== "auto" ? this.idioma : idiomaDoSistema();
     }
 
     // ------------------------------------------------------------ coleta
@@ -288,6 +434,7 @@ class CotaBarApplet extends Applet.Applet {
         const lista = this._ligados().join(",");
         if (!lista) return;
         GLib.mkdir_with_parents(PASTA_USUARIO, 0o755);
+        // --saida/--provedores: aceitos por todas as versões do coletor.
         const argv = ["python3", "-I", this._caminhoColetor(),
                       "--saida", GLib.build_filenamev([PASTA_USUARIO, "usuario.json"]),
                       "--provedores", lista];
@@ -311,7 +458,7 @@ class CotaBarApplet extends Applet.Applet {
             });
         } catch (e) {
             this.rodando = false;
-            global.logError("CotaBar: não consegui rodar o coletor: " + e.message);
+            global.logError("CotaBar: could not run the collector: " + e.message);
         }
     }
 
@@ -379,21 +526,21 @@ class CotaBarApplet extends Applet.Applet {
             mostra = mostra.filter(Boolean);
             if (this.mostrar !== "nada" && !mostra.length) mostra = [null];
 
-            const t = this.textos[p.id];
-            t.visible = mostra.length > 0;
+            const num = this.textos[p.id];
+            num.visible = mostra.length > 0;
             const linhas = mostra.map(j => {
                 if (!j) return "–";
-                const letra = this.letraPeriodo ? `<span size="smaller" alpha="65%"> ${periodo(j)}</span>` : "";
+                const letra = this.letraPeriodo ? `<span size="smaller" alpha="65%"> ${letraPeriodo(periodo(j))}</span>` : "";
                 return escapar(fmtPct(j.usado)) + letra;
             });
-            t.clutter_text.set_markup(linhas.join("\n"));
+            num.clutter_text.set_markup(linhas.join("\n"));
             const topo = Math.max(curta ? curta.usado : 0, longa ? longa.usado : 0);
-            t.style_class = "cotabar-numeros" + (linhas.length > 1 ? " cotabar-duas" : "") + classeNivel(topo) + (apagado ? " cotabar-apagado" : "");
+            num.style_class = "cotabar-numeros" + (linhas.length > 1 ? " cotabar-duas" : "") + classeNivel(topo) + (apagado ? " cotabar-apagado" : "");
 
-            const partes = [curta, longa].filter(Boolean).map(j => `${fmtPct(j.usado)} ${NOME_PERIODO[periodo(j)] || ""}`.trim());
-            dicas.push(`${p.nome}: ${partes.join(" · ") || "sem dados"}${p.estado === "erro" ? " (" + (p.erro || "erro") + ")" : ""}`);
+            const partes = [curta, longa].filter(Boolean).map(j => `${fmtPct(j.usado)} ${t(NOME_PERIODO[periodo(j)] || "")}`.trim());
+            dicas.push(`${p.nome}: ${partes.join(" · ") || t("no data")}${p.estado === "erro" ? " (" + fmtErro(p) + ")" : ""}`);
         }
-        this.set_applet_tooltip(dicas.length ? dicas.join("\n") + "\nAnel de fora: semana/mês · de dentro: horas/dia\nH horas · D dia · S semana · M mês" : "CotaBar — nenhum dado ainda");
+        this.set_applet_tooltip(dicas.length ? dicas.join("\n") + "\n" + t("Outer ring: week/month · inner: hours/day") + "\n" + t("letters") : t("CotaBar — no data yet"));
     }
 
     // ------------------------------------------------------------ menu
@@ -402,23 +549,23 @@ class CotaBarApplet extends Applet.Applet {
         this.menu.removeAll();
         const vis = this._visiveis();
         if (!vis.length) {
-            this.menu.addMenuItem(this._linhaTexto("Nenhuma leitura ainda. Confira se o cotabar-coletor está instalado.", "cotabar-aviso"));
+            this.menu.addMenuItem(this._linhaTexto(t("No readings yet. Check that cotabar-coletor is installed."), "cotabar-aviso"));
         }
         vis.forEach((p, i) => {
             if (i > 0) this.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
             this.menu.addMenuItem(this._cabecalho(p));
             if (p.estado === "ausente") {
-                this.menu.addMenuItem(this._linhaTexto("Não encontrado nesta máquina", "cotabar-aviso"));
+                this.menu.addMenuItem(this._linhaTexto(t("Not found on this machine"), "cotabar-aviso"));
                 return;
             }
-            if (p.erro) {
-                this.menu.addMenuItem(this._linhaTexto((p.desatualizado ? "Última leitura boa " + fmtHaQuanto(p.lido_em_ok) + " — " : "") + p.erro, "cotabar-aviso"));
+            if (p.erro || p.erro_codigo) {
+                this.menu.addMenuItem(this._linhaTexto((p.desatualizado ? t("Last good reading %s — ", fmtHaQuanto(p.lido_em_ok)) : "") + fmtErro(p), "cotabar-aviso"));
             }
             const ordenadas = (p.janelas || []).slice().sort((a, b) => (a.tipo === b.tipo ? 0 : a.tipo === "curta" ? -1 : 1));
             for (const j of ordenadas) this.menu.addMenuItem(this._linhaJanela(p, j));
         });
         this.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
-        const atualizar = new PopupMenu.PopupIconMenuItem("Atualizar agora", "view-refresh-symbolic", St.IconType.SYMBOLIC);
+        const atualizar = new PopupMenu.PopupIconMenuItem(t("Refresh now"), "view-refresh-symbolic", St.IconType.SYMBOLIC);
         atualizar.connect("activate", () => this._atualizarTudo());
         this.menu.addMenuItem(atualizar);
     }
@@ -447,7 +594,7 @@ class CotaBarApplet extends Applet.Applet {
         const linha = new St.BoxLayout({ vertical: true, style_class: "cotabar-janela", x_expand: true });
 
         const topo = new St.BoxLayout({ x_expand: true });
-        topo.add_child(new St.Label({ text: j.rotulo, style_class: "cotabar-rotulo" }));
+        topo.add_child(new St.Label({ text: rotulo(j, p._coletor), style_class: "cotabar-rotulo" }));
         topo.add_child(new St.Widget({ x_expand: true }));
         topo.add_child(new St.Label({ text: fmtPct(j.usado), style_class: "cotabar-pct" + classeNivel(j.usado) }));
         linha.add_child(topo);
@@ -463,7 +610,7 @@ class CotaBarApplet extends Applet.Applet {
         }
         linha.add_child(trilho);
 
-        const pe = [j.detalhe, j.reinicia ? "reinicia " + fmtReinicio(j.reinicia) : null].filter(Boolean).join(" · ");
+        const pe = [detalhe(j), j.reinicia ? t("resets %s", fmtReinicio(j.reinicia)) : null].filter(Boolean).join(" · ");
         if (pe) linha.add_child(new St.Label({ text: pe, style_class: "cotabar-pe" }));
         item.addActor(linha, { expand: true, span: -1 });
         return item;

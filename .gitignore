@@ -1,3 +1,4 @@
 __pycache__/
 *.pyc
 /tests/saida/
+/2026-*-local-command-caveat*.txt

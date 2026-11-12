@@ -1,9 +1,9 @@
 {
   "uuid": "cotabar@davicjc",
   "name": "CotaBar",
-  "description": "Quanto da cota de cada IA (Claude, Antigravity, Codex, Copilot) já foi usado — janela curta (5 h/dia) e longa (semana/mês)",
+  "description": "See how much of your Claude Code, Codex, Antigravity and GitHub Copilot limits you've used — 5-hour, weekly and monthly windows right on the panel",
   "max-instances": 1,
-  "version": "0.2.0",
+  "version": "0.3.0",
   "url": "https://github.com/Davicjc/cotabar",
   "author": "davicjc"
 }

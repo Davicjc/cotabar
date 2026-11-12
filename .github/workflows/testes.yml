@@ -15,3 +15,4 @@ jobs:
       - run: node --check "applet/cotabar@davicjc/applet.js"
       - run: bash -n instalar.sh
       - run: python -c "import json,glob;[json.load(open(f)) for f in glob.glob('applet/*/*.json')]"
+      - run: for po in applet/*/po/*.po; do python tools/po2mo.py "$po" /tmp/x.mo; done

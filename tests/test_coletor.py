@@ -78,6 +78,8 @@ class Parsers(unittest.TestCase):
         self.assertEqual(js["semana"]["tipo"], "longa")
         self.assertIn("semana-fable", js)
         self.assertEqual([js[k]["periodo"] for k in ("sessao", "semana")], ["H", "S"])
+        self.assertEqual(js["sessao"]["rotulo"], "Session · 5 h")
+        self.assertEqual(js["semana-fable"]["grupo"], "Fable")
 
     def test_claude_formato_antigo(self):
         antigo = {k: v for k, v in CLAUDE.items() if k != "limits"}
@@ -101,17 +103,20 @@ class Parsers(unittest.TestCase):
         js = c.janelas_copilot(COPILOT)
         self.assertEqual([j["id"] for j in js], ["premium_interactions"])
         self.assertEqual(js[0]["usado"], 25.0)
-        self.assertEqual(js[0]["detalhe"], "150 de 200 restantes")
+        self.assertEqual((js[0]["restante"], js[0]["total"]), (150, 200))
+        self.assertEqual(js[0]["tipo_limite"], "premium")
         self.assertEqual(js[0]["periodo"], "M")
 
     def test_copilot_remaining_nulo(self):
         q = {"quota_snapshots": {"premium_interactions": {"percent_remaining": 90,
                                                           "remaining": None, "entitlement": 300}}}
-        self.assertEqual(c.janelas_copilot(q)[0]["detalhe"], "0 de 300 restantes")
+        self.assertEqual(c.janelas_copilot(q)[0]["restante"], 0)
 
     def test_agy_periodos(self):
         js = {j["id"]: j["periodo"] for j in c.janelas_agy(AGY)}
         self.assertEqual(js, {"gemini-weekly": "S", "gemini-5h": "H", "gemini-argon-wtu-weekly": "S"})
+        h = [j for j in c.janelas_agy(AGY) if j["id"] == "gemini-5h"][0]
+        self.assertEqual((h["grupo"], h["horas"]), ("Gemini", 5))
 
 
 class Coleta(unittest.TestCase):
@@ -133,6 +138,7 @@ class Coleta(unittest.TestCase):
                 dados = c.coletar(["claude", "codex"], home, None)
         estados = {p["id"]: p["estado"] for p in dados["provedores"]}
         self.assertEqual(estados, {"claude": "erro", "codex": "ausente"})
+        self.assertEqual(dados["provedores"][0]["erro_codigo"], "internal")
 
     def test_token_vencido_mantem_leitura_e_zera_o_que_reiniciou(self):
         passado = c.iso(c.agora() - dt.timedelta(hours=1))
@@ -143,7 +149,7 @@ class Coleta(unittest.TestCase):
             {"id": "sem", "tipo": "longa", "usado": 60, "reinicia": futuro}]}]}
 
         def vencido(_):
-            raise c.Falha("token vencido", False)
+            raise c.Falha("expired", "token expired", False)
         with mock.patch.dict(c.PROVEDORES, {"agy": ("Antigravity", vencido)}):
             dados = c.coletar(["agy"], "/nao/existe", anterior)
         p = dados["provedores"][0]
@@ -158,7 +164,7 @@ class Coleta(unittest.TestCase):
                 fh.write("{quebrado")
 
             def falha(_):
-                raise c.Falha("sem conexão")
+                raise c.Falha("net", "no connection")
             with mock.patch.dict(c.PROVEDORES, {"claude": ("Claude", falha)}):
                 dados = c.coletar(["claude", "codex"], home, None)
         self.assertEqual([p["estado"] for p in dados["provedores"]], ["erro", "ausente"])

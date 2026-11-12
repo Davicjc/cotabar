@@ -7,7 +7,7 @@
     ],
     "pagina-ias": {
       "type": "page",
-      "title": "IAs",
+      "title": "AIs",
       "sections": [
         "secao-ias",
         "secao-coleta",
@@ -16,7 +16,7 @@
     },
     "pagina-barra": {
       "type": "page",
-      "title": "Barra",
+      "title": "Panel",
       "sections": [
         "secao-barra",
         "secao-sobre-barra"
@@ -24,7 +24,7 @@
     },
     "secao-ias": {
       "type": "section",
-      "title": "Quais IAs aparecem",
+      "title": "Which AIs to show",
       "keys": [
         "ia-claude",
         "ia-agy",
@@ -35,7 +35,7 @@
     },
     "secao-coleta": {
       "type": "section",
-      "title": "Coleta",
+      "title": "Reading",
       "keys": [
         "coletar",
         "intervalo"
@@ -43,15 +43,16 @@
     },
     "secao-barra": {
       "type": "section",
-      "title": "Na barra",
+      "title": "On the panel",
       "keys": [
         "mostrar",
-        "letra-periodo"
+        "letra-periodo",
+        "idioma"
       ]
     },
     "secao-sobre-ias": {
       "type": "section",
-      "title": "Sobre",
+      "title": "About",
       "keys": [
         "assinatura-ias",
         "github-ias"
@@ -59,7 +60,7 @@
     },
     "secao-sobre-barra": {
       "type": "section",
-      "title": "Sobre",
+      "title": "About",
       "keys": [
         "assinatura-barra",
         "github-barra"
@@ -89,13 +90,13 @@
   "ocultar-ausentes": {
     "type": "switch",
     "default": true,
-    "description": "Esconder as que não estão instaladas"
+    "description": "Hide the ones that are not installed"
   },
   "coletar": {
     "type": "switch",
     "default": true,
-    "description": "Ler as IAs logadas neste usuário",
-    "tooltip": "O timer do sistema (sudo ./instalar.sh --root) lê as logadas como root. As duas leituras se juntam sozinhas."
+    "description": "Read the AIs signed in on this user",
+    "tooltip": "The system timer (sudo ./instalar.sh --root) reads the ones signed in as root. Both readings are merged automatically."
   },
   "intervalo": {
     "type": "spinbutton",
@@ -103,42 +104,53 @@
     "min": 2,
     "max": 60,
     "step": 1,
-    "units": "minutos",
-    "description": "Consultar a cada",
+    "units": "minutes",
+    "description": "Check every",
     "dependency": "coletar"
   },
   "mostrar": {
     "type": "combobox",
     "default": "ambas",
     "options": {
-      "Curta e longa": "ambas",
-      "Só a curta (horas / dia)": "curta",
-      "Só a longa (semana / mês)": "longa",
-      "Só os anéis": "nada"
+      "Short and long": "ambas",
+      "Short only (hours / day)": "curta",
+      "Long only (week / month)": "longa",
+      "Rings only": "nada"
     },
-    "description": "Números ao lado do anel"
+    "description": "Numbers next to the ring"
   },
   "letra-periodo": {
     "type": "switch",
     "default": true,
-    "description": "Letra do período depois da % (H horas, D dia, S semana, M mês)"
+    "description": "Period letter after the % (H hours, D day, W week, M month)"
+  },
+  "idioma": {
+    "type": "combobox",
+    "default": "auto",
+    "options": {
+      "Automatic (system)": "auto",
+      "English": "en",
+      "Español": "es",
+      "Português": "pt"
+    },
+    "description": "Language"
   },
   "assinatura-ias": {
     "type": "label",
-    "description": "CotaBar 0.2.0 · by davicjc"
+    "description": "CotaBar 0.3.0 · by davicjc"
   },
   "github-ias": {
     "type": "button",
-    "description": "Abrir no GitHub",
+    "description": "Open on GitHub",
     "callback": "abrirGithub"
   },
   "assinatura-barra": {
     "type": "label",
-    "description": "CotaBar 0.2.0 · by davicjc"
+    "description": "CotaBar 0.3.0 · by davicjc"
   },
   "github-barra": {
     "type": "button",
-    "description": "Abrir no GitHub",
+    "description": "Open on GitHub",
     "callback": "abrirGithub"
   }
 }

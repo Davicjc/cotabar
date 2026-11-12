@@ -1,109 +1,128 @@
 # CotaBar
 
-Applet para a barra de tarefas do **Cinnamon** (Linux Mint) que mostra quanto da
-cota de cada assistente de IA você já gastou — a janela **curta** (5 h / dia) e a
-**longa** (semana / mês) — sem abrir nada.
+**English** · [Português](README.pt-BR.md) · [Español](README.es.md)
 
-![CotaBar na barra e o menu aberto](docs/cotabar.png)
+**Know how much of your AI coding limits you've burned — without leaving your desktop.**
+CotaBar is a Linux Mint / **Cinnamon** panel applet that shows the usage of
+**Claude Code**, **Codex (ChatGPT)**, **Antigravity (Gemini)** and **GitHub Copilot**:
+the short window (5 hours / day) and the long one (week / month), side by side.
 
-Cada IA é um anel duplo com a letra dela no meio:
+![CotaBar on the Cinnamon panel](docs/panel.png)
 
-- **anel de fora** = janela longa (semana ou mês)
-- **anel de dentro** = janela curta (5 h ou dia)
-- ao lado, os dois números com a letra do período — **H** horas, **D** dia, **S** semana,
-  **M** mês (ex.: `84% H` / `61% S`); ficam amarelos a partir de 80% e vermelhos a partir de 95%
+[![tests](https://github.com/Davicjc/cotabar/actions/workflows/testes.yml/badge.svg)](https://github.com/Davicjc/cotabar/actions/workflows/testes.yml)
+![Cinnamon](https://img.shields.io/badge/Cinnamon-6.x-87a556)
+![Python](https://img.shields.io/badge/python-3.10%2B%20stdlib%20only-3776ab)
+![License](https://img.shields.io/badge/license-MIT-green)
 
-Clicando, abre o detalhe de cada limite com barra, porcentagem e quando reinicia
-("em 4 h 47 min · 13:10").
+No more hitting "you've reached your limit" in the middle of a task. One glance at the
+panel tells you whether to keep going, switch tools, or wait for the reset.
 
-## O que ele lê
+## What you see
 
-| IA | Letra | De onde vem | Janelas |
+Each AI is a double ring with its letter in the middle:
+
+- **outer ring** — long window (week or month)
+- **inner ring** — short window (5 hours or day)
+- next to it, both percentages with the period letter: **H** hours, **D** day,
+  **W** week, **M** month (e.g. `84% H` / `61% W`). They turn amber at 80% and red at 95%.
+
+Click it for every limit, with a bar, the percentage and when it resets
+("resets in 4 h 47 min · 13:10").
+
+The interface speaks **English, Spanish and Portuguese** (automatic, or pick one in the settings).
+
+## Supported tools
+
+| AI | Letter | Where it reads from | Windows |
 |---|---|---|---|
-| **Claude Code** | C | `~/.claude/.credentials.json` → `api.anthropic.com/api/oauth/usage` (o mesmo do `/usage`) | sessão 5 h, semana, semana por modelo, uso extra do mês |
-| **Antigravity** (`agy`) | A | `~/.gemini/antigravity-cli/antigravity-oauth-token` → `retrieveUserQuotaSummary` do Cloud Code | 5 h e semana por grupo de modelos (Gemini, Claude/GPT, Argon) |
-| **Codex** (GPT) | X | `~/.codex/auth.json` → `chatgpt.com/backend-api/wham/usage` | 5 h e semana (ou créditos) |
-| **GitHub Copilot** | P | `gh auth token` → `api.github.com/copilot_internal/user` | premium / chat do mês |
+| **Claude Code** | C | `~/.claude/.credentials.json` → `api.anthropic.com/api/oauth/usage` (same as `/usage`) | 5-hour session, week, week per model, monthly extra usage |
+| **Antigravity** (`agy`) | A | `~/.gemini/antigravity-cli/antigravity-oauth-token` → Cloud Code `retrieveUserQuotaSummary` | 5 h and week per model group (Gemini, Claude/GPT, Argon) |
+| **Codex** (ChatGPT) | X | `~/.codex/auth.json` → `chatgpt.com/backend-api/wham/usage` | 5 h and week (or credits) |
+| **GitHub Copilot** | P | `gh auth token` → `api.github.com/copilot_internal/user` | monthly premium requests / chat |
 
-A IA que não está instalada fica escondida (dá para mostrar nas configurações).
+Tools that are not installed stay hidden (you can show them in the settings).
 
-### Regras que o coletor segue
+## Safe by design
 
-- **Nunca renova token.** O refresh do Claude e do Codex troca o token e derrubaria
-  a sessão aberta da ferramenta. Se o token venceu, o CotaBar avisa e mostra a última
-  leitura boa — com token vencido a ferramenta está parada, então o uso não subiu;
-  ele só zera as janelas que já reiniciaram.
-- **Nunca grava token.** O JSON de saída só tem porcentagem, rótulo e horário.
-- Um provedor com erro não derruba os outros; erro de rede mantém a leitura anterior por até 6 h.
-- Só biblioteca padrão do Python 3. Sem pip, sem dependência.
+- **Never refreshes a token.** Refreshing Claude's or Codex's token rotates it and would
+  log out the running tool. If a token has expired, CotaBar says so and keeps the last good
+  reading — with an expired token the tool is idle, so usage didn't go up; it only zeroes
+  the windows that have already reset.
+- **Never writes a token.** The output JSON holds percentages, labels and times only.
+- **No new login, no extra account.** It borrows the session each tool already has.
+- One failing provider never takes the others down; a network error keeps the previous
+  reading for up to 6 hours.
+- Python 3 standard library only. No pip, no dependencies.
 
-## Como funciona
-
-```
-cotabar-coletor (Python)  ──►  ~/.cache/cotabar/usuario.json  ─┐
-  roda pelo applet a cada N min                                ├─►  applet (GJS) desenha
-cotabar-root.timer (systemd)  ──►  /var/lib/cotabar/root.json  ─┘
-  opcional, para IAs logadas como root
-```
-
-O applet junta os arquivos das duas pastas; se a mesma IA aparece nos dois, vale a
-leitura boa mais nova.
-
-O timer do root existe para quem roda o Claude Code / agy com `sudo` (as credenciais
-ficam em `/root`, que o usuário do painel não lê). Ele roda com `ProtectSystem=strict`,
-`ProtectHome=read-only` e só escreve em `/var/lib/cotabar`.
-
-## Instalar
+## Install
 
 ```bash
 git clone https://github.com/Davicjc/cotabar.git
 cd cotabar
-./instalar.sh            # applet + coletor para o seu usuário
-sudo ./instalar.sh --root   # também o timer que lê as IAs logadas como root
-# já está como root (sem sudo)? diga quem é o dono do painel: --usuario SEU_USUARIO
+./instalar.sh                # applet + collector for your user
+sudo ./instalar.sh --root    # also a timer for AIs signed in as root (e.g. `sudo claude`)
 ```
 
-O applet entra no painel na hora (sem reiniciar o Cinnamon). Para tirar:
-`./instalar.sh --remover` (ou `sudo ./instalar.sh --remover` se instalou com `--root`).
+The applet shows up on the panel right away — no Cinnamon restart.
+Uninstall: `./instalar.sh --remove` (with `sudo` if you used `--root`).
 
-### Configurações
+Requirements: Cinnamon (tested on 6.6 / Linux Mint 22) and Python 3.10+.
 
-Botão direito no applet → **Configurar**. Tudo é chave ou lista, nada para digitar:
+### Settings
 
-| Aba | Opção | Padrão |
+Right-click the applet → **Configure**. Everything is a switch or a list:
+
+| Tab | Option | Default |
 |---|---|---|
-| IAs | Claude Code / Antigravity / Codex / GitHub Copilot (uma chave cada) | ligadas |
-| IAs | Esconder as que não estão instaladas | ligado |
-| IAs | Ler as IAs logadas neste usuário | ligado |
-| IAs | Consultar a cada | 5 min |
-| Barra | Números ao lado do anel (curta e longa / só curta / só longa / só anéis) | curta e longa |
-| Barra | Letra do período depois da % | ligado |
+| AIs | Claude Code / Antigravity / Codex / GitHub Copilot (one switch each) | on |
+| AIs | Hide the ones that are not installed | on |
+| AIs | Read the AIs signed in on this user | on |
+| AIs | Check every | 5 min |
+| Panel | Numbers next to the ring (short and long / short / long / rings only) | short and long |
+| Panel | Period letter after the % | on |
+| Panel | Language (automatic / English / Español / Português) | automatic |
 
-Se a mesma IA vem do usuário e do timer do root, o applet fica com a leitura boa mais recente.
+## How it works
 
-### Rodar o coletor à mão
+```
+cotabar-coletor (Python)  ──►  ~/.cache/cotabar/usuario.json  ─┐
+  run by the applet every N min                                ├─►  applet (GJS) draws
+cotabar-root.timer (systemd)  ──►  /var/lib/cotabar/root.json  ─┘
+  optional, for AIs signed in as root
+```
+
+The applet merges both folders; if the same AI shows up twice, the most recent good
+reading wins. The root timer runs with `ProtectSystem=strict` and `ProtectHome=read-only`
+and only writes to `/var/lib/cotabar`.
+
+Run the collector by hand:
 
 ```bash
-cotabar-coletor --imprimir                    # tudo, só mostra
-cotabar-coletor --provedores claude,agy       # só alguns
+cotabar-coletor --print                     # everything, just print
+cotabar-coletor --providers claude,agy      # only some
 ```
 
-## Testes
+## Contributing
+
+Issues and pull requests are welcome — especially **new providers** (Cursor, Gemini CLI,
+Kimi, Grok…) and **translations**. Translations of the settings window live in
+[`applet/cotabar@davicjc/po/`](applet/cotabar@davicjc/po/) (copy the `.pot`); the panel and
+menu strings are in the `TEXTOS` table at the top of `applet.js`.
 
 ```bash
 python3 -m unittest discover -s tests -v
 ```
 
-## Créditos
+## Credits
 
-A ideia veio do [Codenotch](https://github.com/vinzdg/codenotch) (macOS/Windows), que
-mostra essas cotas num notch na borda da tela. O CotaBar é outra implementação, do
-zero, para a barra do Cinnamon — nenhum código de lá foi copiado.
+Inspired by [Codenotch](https://github.com/vinzdg/codenotch) (macOS/Windows), which pins these
+limits to a notch on the screen edge. CotaBar is a separate implementation, written from
+scratch for the Cinnamon panel — no code was copied.
 
-## Licença
+## License
 
-MIT — veja [LICENSE](LICENSE).
+MIT — see [LICENSE](LICENSE).
 
 ---
 
-Feito por [Davi Castro](https://davicjc.com).
+Made by [Davi Castro](https://davicjc.com) · *cota* is Portuguese for "quota".

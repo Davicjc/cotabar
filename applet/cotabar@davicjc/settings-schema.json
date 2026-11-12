@@ -1,0 +1,48 @@
+{
+  "secao-coleta": {
+    "type": "section",
+    "description": "Coleta"
+  },
+  "coletar": {
+    "type": "switch",
+    "default": true,
+    "description": "Rodar o coletor como este usuário",
+    "tooltip": "Desligue se só o serviço do sistema (root) coleta."
+  },
+  "provedores": {
+    "type": "entry",
+    "default": "claude,agy,codex,copilot",
+    "description": "Provedores lidos por este usuário",
+    "tooltip": "Separados por vírgula: claude, agy, codex, copilot. Os que o serviço root já lê podem sair daqui.",
+    "dependency": "coletar"
+  },
+  "intervalo": {
+    "type": "spinbutton",
+    "default": 5,
+    "min": 2,
+    "max": 60,
+    "step": 1,
+    "units": "minutos",
+    "description": "Consultar a cada"
+  },
+  "secao-barra": {
+    "type": "section",
+    "description": "Barra"
+  },
+  "mostrar": {
+    "type": "combobox",
+    "default": "ambas",
+    "options": {
+      "Curta e longa": "ambas",
+      "Só a curta (5 h / dia)": "curta",
+      "Só a longa (semana / mês)": "longa",
+      "Só os anéis": "nada"
+    },
+    "description": "Números ao lado do anel"
+  },
+  "ocultar-ausentes": {
+    "type": "switch",
+    "default": true,
+    "description": "Esconder IA que não está instalada"
+  }
+}

@@ -1,0 +1,474 @@
+#!/usr/bin/env python3
+"""cotabar-coletor — lê quanto da cota de cada assistente de IA já foi usado.
+
+Escreve um JSON só com porcentagens e horários de reinício (nunca token) para o
+applet da barra de tarefas desenhar. Usa a sessão que cada ferramenta já tem
+nesta máquina; não faz login, não renova token e não grava nada fora de --saida.
+
+Uso:
+  cotabar-coletor [--saida ARQ] [--provedores claude,agy,codex,copilot]
+                  [--home DIR] [--imprimir]
+
+Provedores:
+  claude   Claude Code   ~/.claude/.credentials.json  → /api/oauth/usage
+  agy      Antigravity   ~/.gemini/antigravity-cli/antigravity-oauth-token
+  codex    Codex (GPT)   ~/.codex/auth.json (ou $CODEX_HOME)
+  copilot  GitHub Copilot  `gh auth token` → /copilot_internal/user
+"""
+import argparse
+import datetime as dt
+import json
+import os
+import subprocess
+import sys
+import tempfile
+import urllib.error
+import urllib.request
+
+VERSAO = "0.1.0"
+TIMEOUT = 15
+UA = f"cotabar/{VERSAO} (+https://github.com/Davicjc/cotabar)"
+
+# Quanto tempo uma leitura antiga ainda é mostrada quando a nova falha.
+VALIDADE_ANTIGA_S = 6 * 3600
+
+
+# ---------------------------------------------------------------- utilidades
+
+def agora():
+    return dt.datetime.now(dt.timezone.utc)
+
+
+def iso(d):
+    return d.astimezone(dt.timezone.utc).isoformat(timespec="seconds") if d else None
+
+
+def ler_data(valor):
+    """Aceita ISO 8601 (com Z ou fração longa), epoch em s ou ms."""
+    if valor in (None, "", 0):
+        return None
+    if isinstance(valor, (int, float)):
+        seg = valor / 1000 if valor > 1e11 else valor
+        return dt.datetime.fromtimestamp(seg, dt.timezone.utc)
+    s = str(valor).strip()
+    if s.endswith("Z"):
+        s = s[:-1] + "+00:00"
+    # Python < 3.11 não aceita mais de 6 casas na fração.
+    if "." in s:
+        corpo, resto = s.split(".", 1)
+        n = 0
+        while n < len(resto) and resto[n].isdigit():
+            n += 1
+        num, fuso = resto[:n], resto[n:]
+        s = f"{corpo}.{num[:6]}{fuso}"
+    try:
+        d = dt.datetime.fromisoformat(s)
+    except ValueError:
+        try:
+            d = dt.datetime.strptime(s[:10], "%Y-%m-%d")
+        except ValueError:
+            return None
+    if d.tzinfo is None:
+        d = d.replace(tzinfo=dt.timezone.utc)
+    return d
+
+
+def pct(valor):
+    try:
+        v = float(valor)
+    except (TypeError, ValueError):
+        return None
+    return round(max(0.0, min(100.0, v)), 1)
+
+
+def janela(id_, rotulo, tipo, usado, reinicia=None, detalhe=None):
+    """tipo: 'curta' (5 h / dia) ou 'longa' (semana / mês)."""
+    u = pct(usado)
+    if u is None:
+        return None
+    j = {"id": id_, "rotulo": rotulo, "tipo": tipo, "usado": u,
+         "reinicia": iso(ler_data(reinicia))}
+    if detalhe:
+        j["detalhe"] = detalhe
+    return j
+
+
+class Falha(Exception):
+    """Erro esperado: vira mensagem curta no applet."""
+
+    def __init__(self, msg, transitoria=True):
+        super().__init__(msg)
+        self.transitoria = transitoria
+
+
+class Ausente(Exception):
+    """A ferramenta não está instalada/logada nesta conta."""
+
+
+def http_json(url, headers=None, corpo=None):
+    dados = None if corpo is None else json.dumps(corpo).encode()
+    req = urllib.request.Request(url, data=dados, headers={
+        "Accept": "application/json", "User-Agent": UA, **(headers or {})})
+    if dados is not None:
+        req.add_header("Content-Type", "application/json")
+    try:
+        with urllib.request.urlopen(req, timeout=TIMEOUT) as r:
+            return json.load(r)
+    except urllib.error.HTTPError as e:
+        if e.code in (401, 403):
+            raise Falha("sessão vencida — use a ferramenta uma vez para renovar", False)
+        if e.code == 429:
+            raise Falha("muitas consultas, tentando de novo depois")
+        raise Falha(f"HTTP {e.code}")
+    except (urllib.error.URLError, TimeoutError, OSError) as e:
+        raise Falha(f"sem conexão ({getattr(e, 'reason', e)})")
+    except ValueError:
+        raise Falha("resposta inválida")
+
+
+def ler_json(caminho):
+    try:
+        with open(caminho, encoding="utf-8") as fh:
+            return json.load(fh)
+    except FileNotFoundError:
+        return None
+    except (OSError, ValueError):
+        raise Falha(f"não consegui ler {caminho}", False)
+
+
+# ---------------------------------------------------------------- provedores
+
+def claude(home):
+    cred = ler_json(os.path.join(home, ".claude", ".credentials.json"))
+    oauth = (cred or {}).get("claudeAiOauth") or {}
+    token = oauth.get("accessToken")
+    if not token:
+        raise Ausente()
+    # Nunca renovar aqui: o refresh troca o token e derrubaria o Claude Code aberto.
+    vence = ler_data(oauth.get("expiresAt"))
+    if vence and vence <= agora():
+        raise Falha("token vencido — o Claude Code renova sozinho ao ser usado", False)
+    dados = http_json("https://api.anthropic.com/api/oauth/usage", {
+        "Authorization": f"Bearer {token}", "anthropic-beta": "oauth-2025-04-20"})
+    return {"plano": oauth.get("subscriptionType"), "janelas": janelas_claude(dados)}
+
+
+def janelas_claude(d):
+    out = []
+    limites = d.get("limits") or []
+    for lim in limites:
+        tipo_api = lim.get("kind") or ""
+        escopo = ((lim.get("scope") or {}).get("model") or {}).get("display_name")
+        if tipo_api == "session":
+            j = janela("sessao", "Sessão (5 h)", "curta", lim.get("percent"), lim.get("resets_at"))
+        elif tipo_api == "weekly_all":
+            j = janela("semana", "Semana", "longa", lim.get("percent"), lim.get("resets_at"))
+        elif tipo_api.startswith("weekly"):
+            nome = escopo or tipo_api.replace("weekly_", "")
+            j = janela(f"semana-{nome.lower()}", f"Semana · {nome}", "longa",
+                       lim.get("percent"), lim.get("resets_at"))
+        else:
+            continue
+        if j:
+            out.append(j)
+    if not limites:  # formato antigo
+        for chave, id_, rot, tipo in (("five_hour", "sessao", "Sessão (5 h)", "curta"),
+                                      ("seven_day", "semana", "Semana", "longa"),
+                                      ("seven_day_opus", "semana-opus", "Semana · Opus", "longa"),
+                                      ("seven_day_sonnet", "semana-sonnet", "Semana · Sonnet", "longa")):
+            w = d.get(chave) or {}
+            j = janela(id_, rot, tipo, w.get("utilization"), w.get("resets_at"))
+            if j:
+                out.append(j)
+    extra = d.get("extra_usage") or {}
+    if extra.get("is_enabled") and extra.get("utilization") is not None:
+        j = janela("extra", "Uso extra (mês)", "longa", extra.get("utilization"))
+        if j:
+            out.append(j)
+    if not out:
+        raise Falha("o Claude não informou limites")
+    return out
+
+
+def claude_statusline(home):
+    """Reserva: números que a status line do Claude Code guardou (skill agy)."""
+    d = ler_json(os.path.join(home, ".cache", "agy-skill", "cota.json"))
+    if not d:
+        return None
+    salvo = d.get("salvo_em")
+    if not salvo or agora().timestamp() - float(salvo) > VALIDADE_ANTIGA_S:
+        return None
+    out = []
+    for chave, id_, rot, tipo in (("sessao", "sessao", "Sessão (5 h)", "curta"),
+                                  ("semana", "semana", "Semana", "longa")):
+        w = d.get(chave) or {}
+        j = janela(id_, rot, tipo, w.get("pct"), w.get("reset"))
+        if j:
+            out.append(j)
+    return out or None
+
+
+AGY_HOSTS = ("https://daily-cloudcode-pa.googleapis.com",
+             "https://cloudcode-pa.googleapis.com")
+
+
+AGY_VERSAO_PADRAO = "1.5.6"
+
+
+def versao_agy():
+    v = os.environ.get("COTABAR_AGY_VERSAO")
+    if v:
+        return v
+    try:
+        r = subprocess.run(["agy", "--version"], capture_output=True, text=True, timeout=5)
+        v = r.stdout.strip().split()[-1] if r.returncode == 0 and r.stdout.strip() else ""
+        if v and v[0].isdigit() and len(v) < 20:
+            return v
+    except (OSError, subprocess.TimeoutExpired, IndexError):
+        pass
+    return AGY_VERSAO_PADRAO
+
+
+def agy(home):
+    tok = ler_json(os.path.join(home, ".gemini", "antigravity-cli", "antigravity-oauth-token"))
+    t = (tok or {}).get("token") or {}
+    if not t.get("access_token"):
+        raise Ausente()
+    vence = ler_data(t.get("expiry"))
+    if vence and vence <= agora():
+        raise Falha("token vencido — rode o agy uma vez para renovar", False)
+    # Sem a versão no User-Agent o servidor só devolve o grupo Claude/GPT.
+    cab = {"Authorization": f"Bearer {t['access_token']}",
+           "User-Agent": f"antigravity/acp/{versao_agy()} (aidev_client; os_type=linux; "
+                         "proxy_client=antigravity/sdk)",
+           "Client-Metadata": "ideType=IDE_UNSPECIFIED,platform=PLATFORM_UNSPECIFIED,pluginType=GEMINI"}
+    ultimo = None
+    for host in AGY_HOSTS:
+        try:
+            dados = http_json(f"{host}/v1internal:retrieveUserQuotaSummary", cab, {})
+        except Falha as e:
+            ultimo = e
+            continue
+        js = janelas_agy(dados)
+        if js:
+            return {"plano": tok.get("auth_method"), "janelas": js}
+    raise ultimo or Falha("o Antigravity não informou cota")
+
+
+def janelas_agy(d):
+    out = []
+    grupos = d.get("groups") or (d.get("response") or {}).get("groups") or []
+    for g in grupos:
+        nome = (g.get("displayName") or "Modelos").replace(" models", "").replace(" Models", "")
+        nome = nome.replace("Claude and GPT", "Claude/GPT")
+        for b in g.get("buckets") or []:
+            if b.get("disabled"):
+                continue
+            resta = b.get("remainingFraction")
+            if not isinstance(resta, (int, float)):
+                continue
+            jan = (b.get("window") or "").lower()
+            curta = jan in ("5h", "hourly", "daily", "day")
+            rot_j = {"5h": "5 h", "weekly": "semana", "daily": "dia", "monthly": "mês"}.get(jan, jan or "limite")
+            j = janela(b.get("bucketId") or f"{nome}-{jan}", f"{nome} · {rot_j}",
+                       "curta" if curta else "longa", (1 - float(resta)) * 100, b.get("resetTime"))
+            if j:
+                out.append(j)
+    return out
+
+
+def codex(home):
+    base = os.environ.get("CODEX_HOME") or os.path.join(home, ".codex")
+    auth = ler_json(os.path.join(base, "auth.json"))
+    toks = (auth or {}).get("tokens") or {}
+    if not toks.get("access_token") or not toks.get("account_id"):
+        raise Ausente()
+    dados = http_json("https://chatgpt.com/backend-api/wham/usage", {
+        "Authorization": f"Bearer {toks['access_token']}",
+        "ChatGPT-Account-Id": toks["account_id"]})
+    return {"plano": dados.get("plan_type"), "janelas": janelas_codex(dados)}
+
+
+def rotulo_segundos(seg, padrao):
+    try:
+        seg = float(seg)
+    except (TypeError, ValueError):
+        return padrao, "curta"
+    if seg <= 6 * 3600:
+        return f"{round(seg / 3600)} h", "curta"
+    if seg <= 26 * 3600:
+        return "dia", "curta"
+    if seg <= 8 * 86400:
+        return "semana", "longa"
+    return "mês", "longa"
+
+
+def janelas_codex(d):
+    out = []
+    rl = d.get("rate_limit") or {}
+    for chave, padrao in (("primary_window", "5 h"), ("secondary_window", "semana")):
+        w = rl.get(chave) or {}
+        rot, tipo = rotulo_segundos(w.get("limit_window_seconds"), padrao)
+        reinicia = w.get("reset_at")
+        if not reinicia and w.get("reset_after_seconds") is not None:
+            reinicia = agora().timestamp() + float(w["reset_after_seconds"])
+        j = janela(chave.split("_")[0], rot.capitalize(), tipo, w.get("used_percent"), reinicia)
+        if j:
+            out.append(j)
+    if not out:
+        cred = ((d.get("spend_control") or {}).get("individual_limit")) or {}
+        j = janela("creditos", "Créditos", "longa", cred.get("used_percent"), cred.get("reset_at"))
+        if j:
+            out.append(j)
+    if not out:
+        raise Falha("o Codex não informou limites")
+    return out
+
+
+def copilot(home):
+    try:
+        r = subprocess.run(["gh", "auth", "token"], capture_output=True, text=True, timeout=10)
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        raise Ausente()
+    token = r.stdout.strip()
+    if r.returncode != 0 or not token:
+        raise Ausente()
+    try:
+        dados = http_json("https://api.github.com/copilot_internal/user",
+                          {"Authorization": f"token {token}"})
+    except Falha as e:
+        if not e.transitoria:  # conta sem Copilot
+            raise Ausente()
+        raise
+    return {"plano": dados.get("access_type_sku") or dados.get("copilot_plan"),
+            "janelas": janelas_copilot(dados)}
+
+
+def janelas_copilot(d):
+    out = []
+    reinicia = d.get("quota_reset_date")
+    nomes = {"premium_interactions": "Premium (mês)", "chat": "Chat (mês)",
+             "completions": "Autocompletar (mês)"}
+    for qid, q in (d.get("quota_snapshots") or {}).items():
+        if not isinstance(q, dict) or q.get("unlimited"):
+            continue
+        resta = q.get("percent_remaining")
+        if resta is None:
+            continue
+        detalhe = None
+        if q.get("entitlement"):
+            detalhe = f"{q.get('remaining', 0):g} de {q['entitlement']:g} restantes"
+        j = janela(qid, nomes.get(qid, f"{qid} (mês)"), "longa", 100 - float(resta), reinicia, detalhe)
+        if j:
+            out.append(j)
+    if not out:
+        raise Falha("o Copilot não informou cota limitada")
+    return out
+
+
+PROVEDORES = {
+    "claude": ("Claude", claude),
+    "agy": ("Antigravity", agy),
+    "codex": ("Codex", codex),
+    "copilot": ("Copilot", copilot),
+}
+
+
+# ---------------------------------------------------------------- execução
+
+def envelhecer(janelas):
+    """Copia leituras antigas zerando as janelas cujo reinício já passou."""
+    out = []
+    for j in janelas:
+        j = dict(j)
+        r = ler_data(j.get("reinicia"))
+        if r and r <= agora():
+            j["usado"] = 0.0
+            j["reinicia"] = None
+        out.append(j)
+    return out
+
+
+def coletar(nomes, home, anterior):
+    prev = {p.get("id"): p for p in (anterior or {}).get("provedores", [])}
+    saida = []
+    for id_ in nomes:
+        nome, func = PROVEDORES[id_]
+        item = {"id": id_, "nome": nome, "lido_em": iso(agora())}
+        try:
+            r = func(home)
+            item.update(estado="ok", plano=r.get("plano"), janelas=r["janelas"])
+        except Ausente:
+            item.update(estado="ausente", janelas=[])
+        except Falha as e:
+            item.update(estado="erro", erro=str(e), janelas=[])
+            reserva = claude_statusline(home) if id_ == "claude" else None
+            velho = prev.get(id_) or {}
+            idade = (agora() - (ler_data(velho.get("lido_em_ok")) or agora())).total_seconds()
+            if reserva:
+                item.update(janelas=reserva, fonte="status line do Claude Code")
+            elif velho.get("janelas") and (not e.transitoria or idade < VALIDADE_ANTIGA_S):
+                # Token vencido = ferramenta parada desde então, então o uso não
+                # subiu; só zera o que já reiniciou. Erro de rede vale por 6 h.
+                item.update(janelas=envelhecer(velho["janelas"]), plano=velho.get("plano"),
+                            lido_em_ok=velho.get("lido_em_ok"), desatualizado=True)
+        except Exception as e:  # noqa: BLE001 — um provedor nunca derruba os outros
+            item.update(estado="erro", erro=f"erro interno: {type(e).__name__}", janelas=[])
+        if item["estado"] == "ok":
+            item["lido_em_ok"] = item["lido_em"]
+        saida.append(item)
+    return {"versao": 1, "coletor": VERSAO, "gerado_em": iso(agora()),
+            "usuario": os.path.basename(home.rstrip("/")) or "root", "provedores": saida}
+
+
+def gravar(caminho, dados):
+    pasta = os.path.dirname(os.path.abspath(caminho))
+    os.makedirs(pasta, exist_ok=True)
+    if os.path.islink(pasta):
+        raise SystemExit(f"recusei gravar: {pasta} é link simbólico")
+    fd, tmp = tempfile.mkstemp(dir=pasta, prefix=".cotabar-", suffix=".json")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            json.dump(dados, fh, ensure_ascii=False, indent=1)
+        os.chmod(tmp, 0o644)  # só porcentagens: pode ser lido pelo applet
+        os.replace(tmp, caminho)
+    except BaseException:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+        raise
+
+
+def main(argv=None):
+    ap = argparse.ArgumentParser(description="Lê o uso das cotas de IA desta conta.")
+    ap.add_argument("--saida", help="arquivo JSON de saída (padrão: só imprimir)")
+    ap.add_argument("--provedores", default=",".join(PROVEDORES),
+                    help="lista separada por vírgula: " + ",".join(PROVEDORES))
+    ap.add_argument("--home", default=os.path.expanduser("~"), help="pasta das credenciais")
+    ap.add_argument("--imprimir", action="store_true", help="mostrar o JSON também")
+    ap.add_argument("--versao", action="version", version=VERSAO)
+    a = ap.parse_args(argv)
+
+    nomes = [n.strip() for n in a.provedores.split(",") if n.strip()]
+    desconhecidos = [n for n in nomes if n not in PROVEDORES]
+    if desconhecidos:
+        ap.error("provedor desconhecido: " + ", ".join(desconhecidos))
+
+    anterior = None
+    if a.saida:
+        try:
+            anterior = ler_json(a.saida)
+        except Falha:
+            anterior = None
+    dados = coletar(nomes, a.home, anterior)
+    if a.saida:
+        gravar(a.saida, dados)
+    if a.imprimir or not a.saida:
+        json.dump(dados, sys.stdout, ensure_ascii=False, indent=1)
+        print()
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

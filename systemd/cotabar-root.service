@@ -1,0 +1,24 @@
+[Unit]
+Description=CotaBar: lê o uso das cotas de IA logadas na conta root
+Documentation=https://github.com/Davicjc/cotabar
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+# Só porcentagens saem daqui (0644 em /var/lib/cotabar); os tokens ficam onde estão.
+ExecStart=/usr/bin/python3 -I /usr/local/bin/cotabar-coletor --home /root --provedores claude,agy,codex --saida /var/lib/cotabar/root.json
+StateDirectory=cotabar
+StateDirectoryMode=0755
+UMask=0022
+Nice=10
+ProtectSystem=strict
+ProtectHome=read-only
+PrivateTmp=yes
+PrivateDevices=yes
+NoNewPrivileges=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX

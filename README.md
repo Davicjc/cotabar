@@ -42,6 +42,9 @@ The interface speaks **English, Spanish and Portuguese** (automatic, or pick one
 
 Tools that are not installed stay hidden (you can show them in the settings).
 
+> Codex support follows the official usage endpoint but has not been tested with a real
+> account yet — if you use Codex, an issue telling whether it works is very welcome.
+
 ## Safe by design
 
 - **Never refreshes a token.** Refreshing Claude's or Codex's token rotates it and would

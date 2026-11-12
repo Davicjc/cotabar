@@ -42,6 +42,9 @@ La interfaz está en **español, inglés y portugués** (automático, o elígelo
 
 Las herramientas que no están instaladas quedan ocultas (puedes mostrarlas en la configuración).
 
+> El soporte de Codex usa el endpoint oficial de uso, pero aún no se probó con una cuenta
+> real — si usas Codex, una issue contando si funciona ayuda mucho.
+
 ## Seguro por diseño
 
 - **Nunca renueva un token.** Renovar el token de Claude o de Codex lo rota y cerraría la

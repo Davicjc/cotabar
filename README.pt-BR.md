@@ -42,6 +42,9 @@ A interface fala **português, inglês e espanhol** (automático, ou escolha nas
 
 A IA que não está instalada fica escondida (dá para mostrar nas configurações).
 
+> O suporte ao Codex segue o endpoint oficial de uso, mas ainda não foi testado com uma conta
+> real — se você usa Codex, uma issue dizendo se funcionou ajuda muito.
+
 ## Seguro por padrão
 
 - **Nunca renova token.** O refresh do Claude e do Codex troca o token e derrubaria a

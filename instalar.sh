@@ -79,7 +79,7 @@ PY
 
 if [[ $REMOVER -eq 1 ]]; then
   painel desligar || true
-  rm -rf "$DESTINO"
+  rm -rf "$DESTINO" "$ALVO_HOME/.local/share/cotabar"
   rm -f "$ALVO_HOME"/.local/share/locale/*/LC_MESSAGES/"$UUID".mo
   if [[ $EUID -eq 0 ]]; then
     systemctl disable --now cotabar-root.timer 2>/dev/null || true
@@ -96,6 +96,16 @@ como_alvo mkdir -p "$DESTINO"
 como_alvo cp "$AQUI/applet/$UUID/"{applet.js,metadata.json,settings-schema.json,stylesheet.css} "$DESTINO/"
 [[ -f "$AQUI/applet/$UUID/icon.png" ]] && como_alvo cp "$AQUI/applet/$UUID/icon.png" "$DESTINO/"
 como_alvo install -m 0755 "$AQUI/coletor/cotabar-coletor" "$DESTINO/cotabar-coletor"
+
+# Atualizador do botão "Procurar atualização" (só nesta instalação pelo GitHub)
+DADOS="$ALVO_HOME/.local/share/cotabar"
+como_alvo mkdir -p "$DADOS"
+como_alvo install -m 0755 "$AQUI/atualizar.sh" "$DADOS/atualizar.sh"
+if [[ -d "$AQUI/.git" ]]; then
+  printf '%s\n' "$AQUI" | como_alvo tee "$DADOS/origem" >/dev/null
+else
+  como_alvo rm -f "$DADOS/origem"  # veio de um pacote temporário: baixa de novo da próxima vez
+fi
 
 # Traduções da janela de configurações (o Cinnamon procura em ~/.local/share/locale)
 LOCALE="$ALVO_HOME/.local/share/locale"

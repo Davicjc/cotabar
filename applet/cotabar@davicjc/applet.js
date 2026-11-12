@@ -14,6 +14,10 @@ const ByteArray = imports.byteArray;
 const PASTA_USUARIO = GLib.build_filenamev([GLib.get_user_cache_dir(), "cotabar"]);
 const PASTAS_FONTES = [PASTA_USUARIO, "/var/lib/cotabar"];
 const COLETOR_SISTEMA = "/usr/local/bin/cotabar-coletor";
+// [atualizador-github]
+const ATUALIZADOR = GLib.build_filenamev([GLib.get_user_data_dir(), "cotabar", "atualizar.sh"]);
+const LOG_ATUALIZACAO = GLib.build_filenamev([GLib.get_user_cache_dir(), "cotabar", "atualizar.log"]);
+// [/atualizador-github]
 
 // Cor de cada IA (anel) e letra no meio.
 const MARCA = {
@@ -37,6 +41,12 @@ const TEXTOS = {
         "Not found on this machine": "Não encontrado nesta máquina",
         "Last good reading %s — ": "Última leitura boa %s — ",
         "Refresh now": "Atualizar agora",
+        "Check for updates": "Procurar atualização",
+        "Checking for updates…": "Procurando atualização…",
+        "Update to v%s": "Atualizar para v%s",
+        "Up to date (v%s)": "Em dia (v%s)",
+        "Updating…": "Atualizando…",
+        "Update failed — see %s": "A atualização falhou — veja %s",
         "resets %s": "reinicia %s",
         "in %s": "em %s",
         "never": "nunca", "now": "agora", "%s ago": "há %s",
@@ -66,6 +76,12 @@ const TEXTOS = {
         "Not found on this machine": "No se encontró en este equipo",
         "Last good reading %s — ": "Última lectura buena %s — ",
         "Refresh now": "Actualizar ahora",
+        "Check for updates": "Buscar actualizaciones",
+        "Checking for updates…": "Buscando actualizaciones…",
+        "Update to v%s": "Actualizar a v%s",
+        "Up to date (v%s)": "Al día (v%s)",
+        "Updating…": "Actualizando…",
+        "Update failed — see %s": "La actualización falló — mira %s",
         "resets %s": "se reinicia %s",
         "in %s": "en %s",
         "never": "nunca", "now": "ahora", "%s ago": "hace %s",
@@ -408,7 +424,88 @@ class CotaBarApplet extends Applet.Applet {
             this._ler();
             return GLib.SOURCE_CONTINUE;
         });
+        // [atualizador-github]
+        this._estadoAtualizacao = "nada";  // nada | procurando | disponivel | emdia | atualizando | falhou
+        this._loopAtualizacao = GLib.timeout_add_seconds(GLib.PRIORITY_DEFAULT_IDLE, 12 * 3600, () => {
+            this._procurarAtualizacao();
+            return GLib.SOURCE_CONTINUE;
+        });
+        this._procurarAtualizacao();
+        // [/atualizador-github]
     }
+
+    // [atualizador-github]
+    // Só existe na instalação pelo GitHub: o instalar.sh deixa o atualizar.sh em ~/.local/share/cotabar.
+    _temAtualizador() {
+        return GLib.file_test(ATUALIZADOR, GLib.FileTest.EXISTS);
+    }
+
+    _rodarAtualizador(argv, aoTerminar) {
+        try {
+            const proc = Gio.Subprocess.new(argv, Gio.SubprocessFlags.STDOUT_PIPE | Gio.SubprocessFlags.STDERR_MERGE);
+            proc.communicate_utf8_async(null, null, (p, res) => {
+                let saida = "";
+                try { [, saida] = p.communicate_utf8_finish(res); } catch (e) { saida = e.message; }
+                if (!this._removido) aoTerminar(p.get_successful(), saida || "");
+            });
+        } catch (e) {
+            aoTerminar(false, e.message);
+        }
+    }
+
+    _procurarAtualizacao() {
+        if (!this._temAtualizador() || this._estadoAtualizacao === "atualizando") return;
+        this._estadoAtualizacao = "procurando";
+        this._rodarAtualizador(["bash", ATUALIZADOR, "--check"], (ok, saida) => {
+            const m = /remote=(\S+)/.exec(saida);
+            if (!ok || !m) {
+                this._estadoAtualizacao = "nada";  // sem internet: tenta de novo depois
+            } else {
+                this._versaoRemota = m[1];
+                const local = this.metadata.version || "0";
+                const partes = m[1].split(".").map(n => parseInt(n, 10) || 0);
+                this._estadoAtualizacao = versaoAntiga(local, partes) ? "disponivel" : "emdia";
+            }
+            if (this.menu.isOpen) this._montarMenu();
+        });
+    }
+
+    _atualizarApplet() {
+        this._estadoAtualizacao = "atualizando";
+        // Saída vai para um log; os caminhos entram como argumentos, nunca no texto do comando.
+        this._rodarAtualizador(["bash", "-c", 'exec bash "$0" >"$1" 2>&1', ATUALIZADOR, LOG_ATUALIZACAO], ok => {
+            // Deu certo: o instalar.sh recarrega o applet e esta instância some.
+            this._estadoAtualizacao = ok ? "emdia" : "falhou";
+            if (this.menu.isOpen) this._montarMenu();
+        });
+        if (this.menu.isOpen) this._montarMenu();
+    }
+
+    _itemAtualizacao() {
+        const e = this._estadoAtualizacao;
+        const textos = {
+            procurando: t("Checking for updates…"),
+            disponivel: t("Update to v%s", this._versaoRemota || "?"),
+            emdia: t("Up to date (v%s)", this.metadata.version || "?"),
+            atualizando: t("Updating…"),
+            falhou: t("Update failed — see %s", "~/.cache/cotabar/atualizar.log"),
+        };
+        const icone = e === "disponivel" ? "software-update-available-symbolic" : "system-software-update-symbolic";
+        const item = new PopupMenu.PopupIconMenuItem(textos[e] || t("Check for updates"), icone, St.IconType.SYMBOLIC);
+        if (e === "disponivel") item.connect("activate", () => this._atualizarApplet());
+        else if (e !== "procurando" && e !== "atualizando") {
+            item.connect("activate", () => {
+                this._procurarAtualizacao();
+                // reabre para mostrar o resultado
+                GLib.timeout_add(GLib.PRIORITY_DEFAULT, 200, () => {
+                    if (!this._removido) this.menu.open();
+                    return GLib.SOURCE_REMOVE;
+                });
+            });
+        }
+        return item;
+    }
+    // [/atualizador-github]
 
     _aplicarIdioma() {
         IDIOMA = this.idioma && this.idioma !== "auto" ? this.idioma : idiomaDoSistema();
@@ -597,6 +694,9 @@ class CotaBarApplet extends Applet.Applet {
         const atualizar = new PopupMenu.PopupIconMenuItem(t("Refresh now"), "view-refresh-symbolic", St.IconType.SYMBOLIC);
         atualizar.connect("activate", () => this._atualizarTudo());
         this.menu.addMenuItem(atualizar);
+        // [atualizador-github]
+        if (this._temAtualizador()) this.menu.addMenuItem(this._itemAtualizacao());
+        // [/atualizador-github]
     }
 
     _cabecalho(p) {
@@ -655,7 +755,7 @@ class CotaBarApplet extends Applet.Applet {
 
     on_applet_removed_from_panel() {
         this._removido = true;
-        for (const k of ["_loopColeta", "_loopLeitura"]) {
+        for (const k of ["_loopColeta", "_loopLeitura", "_loopAtualizacao"]) {
             if (this[k]) {
                 GLib.source_remove(this[k]);
                 this[k] = null;

@@ -3,6 +3,6 @@
   "name": "CotaBar",
   "description": "Quanto da cota de cada IA (Claude, Antigravity, Codex, Copilot) já foi usado — janela curta (5 h/dia) e longa (semana/mês)",
   "max-instances": 1,
-  "version": "0.1.0",
+  "version": "0.2.0",
   "url": "https://github.com/Davicjc/cotabar"
 }

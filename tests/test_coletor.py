@@ -77,6 +77,7 @@ class Parsers(unittest.TestCase):
         self.assertEqual(js["sessao"]["tipo"], "curta")
         self.assertEqual(js["semana"]["tipo"], "longa")
         self.assertIn("semana-fable", js)
+        self.assertEqual([js[k]["periodo"] for k in ("sessao", "semana")], ["H", "S"])
 
     def test_claude_formato_antigo(self):
         antigo = {k: v for k, v in CLAUDE.items() if k != "limits"}
@@ -101,6 +102,16 @@ class Parsers(unittest.TestCase):
         self.assertEqual([j["id"] for j in js], ["premium_interactions"])
         self.assertEqual(js[0]["usado"], 25.0)
         self.assertEqual(js[0]["detalhe"], "150 de 200 restantes")
+        self.assertEqual(js[0]["periodo"], "M")
+
+    def test_copilot_remaining_nulo(self):
+        q = {"quota_snapshots": {"premium_interactions": {"percent_remaining": 90,
+                                                          "remaining": None, "entitlement": 300}}}
+        self.assertEqual(c.janelas_copilot(q)[0]["detalhe"], "0 de 300 restantes")
+
+    def test_agy_periodos(self):
+        js = {j["id"]: j["periodo"] for j in c.janelas_agy(AGY)}
+        self.assertEqual(js, {"gemini-weekly": "S", "gemini-5h": "H", "gemini-argon-wtu-weekly": "S"})
 
 
 class Coleta(unittest.TestCase):
@@ -139,6 +150,18 @@ class Coleta(unittest.TestCase):
         self.assertTrue(p["desatualizado"])
         usado = {j["id"]: j["usado"] for j in p["janelas"]}
         self.assertEqual(usado, {"5h": 0.0, "sem": 60})
+
+    def test_reserva_corrompida_nao_derruba(self):
+        with tempfile.TemporaryDirectory() as home:
+            os.makedirs(os.path.join(home, ".cache", "agy-skill"))
+            with open(os.path.join(home, ".cache", "agy-skill", "cota.json"), "w") as fh:
+                fh.write("{quebrado")
+
+            def falha(_):
+                raise c.Falha("sem conexão")
+            with mock.patch.dict(c.PROVEDORES, {"claude": ("Claude", falha)}):
+                dados = c.coletar(["claude", "codex"], home, None)
+        self.assertEqual([p["estado"] for p in dados["provedores"]], ["erro", "ausente"])
 
     def test_gravar_e_legivel_e_atomico(self):
         with tempfile.TemporaryDirectory() as pasta:

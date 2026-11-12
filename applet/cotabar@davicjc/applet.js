@@ -54,19 +54,29 @@ function tempo(iso) {
     return isNaN(t) ? 0 : t;
 }
 
-// Junta os provedores de todos os arquivos: vence quem tem leitura boa, depois o mais novo.
-function juntar() {
+// Leitura com mais de 30 min perde para uma mais nova de outra fonte.
+const VELHA_MS = 30 * 60 * 1000;
+
+function peso(p) {
+    let v = (PESO_ESTADO[p.estado] || 0) + (p.janelas && p.janelas.length ? 1 : 0);
+    if (Date.now() - tempo(p.lido_em) > VELHA_MS) v -= 4;
+    return v;
+}
+
+// Junta os provedores de todos os arquivos: vence a leitura boa e recente, depois a mais nova.
+function juntar(lerUsuario) {
     const melhor = {};
     for (const pasta of PASTAS_FONTES) {
+        if (pasta === PASTA_USUARIO && !lerUsuario) continue;
         for (const arq of listarJson(pasta)) {
             let dados;
             try { dados = JSON.parse(lerTexto(arq) || "null"); } catch (e) { continue; }
             if (!dados || !Array.isArray(dados.provedores)) continue;
             for (const p of dados.provedores) {
                 const atual = melhor[p.id];
-                const peso = (PESO_ESTADO[p.estado] || 0) + (p.janelas && p.janelas.length ? 1 : 0);
-                const pesoAtual = atual ? (PESO_ESTADO[atual.estado] || 0) + (atual.janelas && atual.janelas.length ? 1 : 0) : -1;
-                if (peso > pesoAtual || (peso === pesoAtual && tempo(p.lido_em) > tempo(atual.lido_em))) {
+                const pesoNovo = peso(p);
+                const pesoAtual = atual ? peso(atual) : -99;
+                if (pesoNovo > pesoAtual || (pesoNovo === pesoAtual && tempo(p.lido_em) > tempo(atual.lido_em))) {
                     melhor[p.id] = p;
                 }
             }
@@ -76,12 +86,24 @@ function juntar() {
         .concat(Object.keys(melhor).filter(id => ORDEM.indexOf(id) < 0).map(id => melhor[id]));
 }
 
+// A janela mais apertada de cada tipo (é a que vai travar primeiro).
 function maior(janelas, tipo) {
     let m = null;
     for (const j of janelas || []) {
-        if (j.tipo === tipo && (m === null || j.usado > m)) m = j.usado;
+        if (j.tipo === tipo && (m === null || j.usado > m.usado)) m = j;
     }
     return m;
+}
+
+function periodo(j) {
+    if (j.periodo) return j.periodo;
+    return j.tipo === "curta" ? "H" : "S";  // JSON de coletor antigo
+}
+
+const NOME_PERIODO = { H: "horas", D: "dia", S: "semana", M: "mês" };
+
+function escapar(t) {
+    return GLib.markup_escape_text(String(t), -1);
 }
 
 // Item de menu só de leitura, sem o cinza de "desativado" que o Cinnamon põe.
@@ -205,8 +227,11 @@ class CotaBarApplet extends Applet.Applet {
         this.rodando = false;
 
         this.settings = new Settings.AppletSettings(this, metadata.uuid, instanceId);
-        this.settings.bind("coletar", "coletar", () => this._reagendar(true));
-        this.settings.bind("provedores", "listaProvedores", () => this._reagendar(true));
+        this.settings.bind("coletar", "coletar", () => { this._reagendar(true); this._ler(); });
+        for (const id of ORDEM) {
+            this.settings.bind("ia-" + id, "ia_" + id, () => { this._coletar(); this._ler(); });
+        }
+        this.settings.bind("letra-periodo", "letraPeriodo", () => this._desenhar());
         this.settings.bind("intervalo", "intervalo", () => this._reagendar(false));
         this.settings.bind("mostrar", "mostrar", () => this._desenhar());
         this.settings.bind("ocultar-ausentes", "ocultarAusentes", () => this._desenhar());
@@ -250,9 +275,17 @@ class CotaBarApplet extends Applet.Applet {
         if (agora) this._coletar();
     }
 
+    _ligados() {
+        return ORDEM.filter(id => this["ia_" + id]);
+    }
+
     _coletar() {
-        if (!this.coletar || this.rodando) return;
-        const lista = (this.listaProvedores || "").replace(/\s+/g, "");
+        if (!this.coletar) return;
+        if (this.rodando) {
+            this._pendente = true;  // roda de novo assim que a atual acabar
+            return;
+        }
+        const lista = this._ligados().join(",");
         if (!lista) return;
         GLib.mkdir_with_parents(PASTA_USUARIO, 0o755);
         const argv = ["python3", "-I", this._caminhoColetor(),
@@ -271,6 +304,10 @@ class CotaBarApplet extends Applet.Applet {
                     global.logError("CotaBar: " + e.message);
                 }
                 this._ler();
+                if (this._pendente) {
+                    this._pendente = false;
+                    this._coletar();
+                }
             });
         } catch (e) {
             this.rodando = false;
@@ -287,13 +324,14 @@ class CotaBarApplet extends Applet.Applet {
     // ------------------------------------------------------------ barra
 
     _ler() {
-        this.provedores = juntar();
+        this.provedores = juntar(this.coletar);
         this._desenhar();
         if (this.menu.isOpen) this._montarMenu();
     }
 
     _visiveis() {
-        return this.provedores.filter(p => !(this.ocultarAusentes && p.estado === "ausente"));
+        return this.provedores.filter(p => (ORDEM.indexOf(p.id) < 0 || this["ia_" + p.id]) &&
+                                           !(this.ocultarAusentes && p.estado === "ausente"));
     }
 
     _desenhar() {
@@ -331,20 +369,31 @@ class CotaBarApplet extends Applet.Applet {
             const curta = maior(p.janelas, "curta");
             const longa = maior(p.janelas, "longa");
             const apagado = p.estado !== "ok";
-            this.aneis[p.id].definir(curta, longa, apagado);
+            this.aneis[p.id].definir(curta ? curta.usado : null, longa ? longa.usado : null, apagado);
+
+            let mostra;
+            if (this.mostrar === "curta") mostra = [curta || longa];
+            else if (this.mostrar === "longa") mostra = [longa || curta];
+            else if (this.mostrar === "nada") mostra = [];
+            else mostra = curta && longa ? [curta, longa] : [curta || longa];
+            mostra = mostra.filter(Boolean);
+            if (this.mostrar !== "nada" && !mostra.length) mostra = [null];
+
             const t = this.textos[p.id];
-            let linhas;
-            if (this.mostrar === "curta") linhas = [fmtPct(curta !== null ? curta : longa)];
-            else if (this.mostrar === "longa") linhas = [fmtPct(longa !== null ? longa : curta)];
-            else if (this.mostrar === "nada") linhas = [];
-            else linhas = curta !== null && longa !== null ? [fmtPct(curta), fmtPct(longa)] : [fmtPct(curta !== null ? curta : longa)];
-            t.visible = linhas.length > 0;
-            t.set_text(linhas.join("\n"));
-            const topo = Math.max(curta || 0, longa || 0);
+            t.visible = mostra.length > 0;
+            const linhas = mostra.map(j => {
+                if (!j) return "–";
+                const letra = this.letraPeriodo ? `<span size="smaller" alpha="65%"> ${periodo(j)}</span>` : "";
+                return escapar(fmtPct(j.usado)) + letra;
+            });
+            t.clutter_text.set_markup(linhas.join("\n"));
+            const topo = Math.max(curta ? curta.usado : 0, longa ? longa.usado : 0);
             t.style_class = "cotabar-numeros" + (linhas.length > 1 ? " cotabar-duas" : "") + classeNivel(topo) + (apagado ? " cotabar-apagado" : "");
-            dicas.push(`${p.nome}: ${curta !== null ? "curta " + fmtPct(curta) : ""}${curta !== null && longa !== null ? " · " : ""}${longa !== null ? "longa " + fmtPct(longa) : ""}${p.estado === "erro" ? " (" + (p.erro || "erro") + ")" : ""}`);
+
+            const partes = [curta, longa].filter(Boolean).map(j => `${fmtPct(j.usado)} ${NOME_PERIODO[periodo(j)] || ""}`.trim());
+            dicas.push(`${p.nome}: ${partes.join(" · ") || "sem dados"}${p.estado === "erro" ? " (" + (p.erro || "erro") + ")" : ""}`);
         }
-        this.set_applet_tooltip(dicas.length ? dicas.join("\n") + "\nAnel de fora: semana/mês · de dentro: 5 h/dia" : "CotaBar — nenhum dado ainda");
+        this.set_applet_tooltip(dicas.length ? dicas.join("\n") + "\nAnel de fora: semana/mês · de dentro: horas/dia\nH horas · D dia · S semana · M mês" : "CotaBar — nenhum dado ainda");
     }
 
     // ------------------------------------------------------------ menu

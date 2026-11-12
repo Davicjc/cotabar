@@ -1,20 +1,63 @@
 {
-  "secao-coleta": {
-    "type": "section",
-    "description": "Coleta"
+  "layout": {
+    "type": "layout",
+    "pages": ["pagina-ias", "pagina-barra"],
+    "pagina-ias": {
+      "type": "page",
+      "title": "IAs",
+      "sections": ["secao-ias", "secao-coleta"]
+    },
+    "pagina-barra": {
+      "type": "page",
+      "title": "Barra",
+      "sections": ["secao-barra"]
+    },
+    "secao-ias": {
+      "type": "section",
+      "title": "Quais IAs aparecem",
+      "keys": ["ia-claude", "ia-agy", "ia-codex", "ia-copilot", "ocultar-ausentes"]
+    },
+    "secao-coleta": {
+      "type": "section",
+      "title": "Coleta",
+      "keys": ["coletar", "intervalo"]
+    },
+    "secao-barra": {
+      "type": "section",
+      "title": "Na barra",
+      "keys": ["mostrar", "letra-periodo"]
+    }
+  },
+  "ia-claude": {
+    "type": "switch",
+    "default": true,
+    "description": "Claude Code"
+  },
+  "ia-agy": {
+    "type": "switch",
+    "default": true,
+    "description": "Antigravity (agy)"
+  },
+  "ia-codex": {
+    "type": "switch",
+    "default": true,
+    "description": "Codex (GPT)"
+  },
+  "ia-copilot": {
+    "type": "switch",
+    "default": true,
+    "description": "GitHub Copilot"
+  },
+  "ocultar-ausentes": {
+    "type": "switch",
+    "default": true,
+    "description": "Esconder as que não estão instaladas"
   },
   "coletar": {
     "type": "switch",
     "default": true,
-    "description": "Rodar o coletor como este usuário",
-    "tooltip": "Desligue se só o serviço do sistema (root) coleta."
-  },
-  "provedores": {
-    "type": "entry",
-    "default": "claude,agy,codex,copilot",
-    "description": "Provedores lidos por este usuário",
-    "tooltip": "Separados por vírgula: claude, agy, codex, copilot. Os que o serviço root já lê podem sair daqui.",
-    "dependency": "coletar"
+    "description": "Ler as IAs logadas neste usuário",
+    "tooltip": "O timer do sistema (sudo ./instalar.sh --root) lê as logadas como root. As duas leituras se juntam sozinhas."
   },
   "intervalo": {
     "type": "spinbutton",
@@ -23,26 +66,23 @@
     "max": 60,
     "step": 1,
     "units": "minutos",
-    "description": "Consultar a cada"
-  },
-  "secao-barra": {
-    "type": "section",
-    "description": "Barra"
+    "description": "Consultar a cada",
+    "dependency": "coletar"
   },
   "mostrar": {
     "type": "combobox",
     "default": "ambas",
     "options": {
       "Curta e longa": "ambas",
-      "Só a curta (5 h / dia)": "curta",
+      "Só a curta (horas / dia)": "curta",
       "Só a longa (semana / mês)": "longa",
       "Só os anéis": "nada"
     },
     "description": "Números ao lado do anel"
   },
-  "ocultar-ausentes": {
+  "letra-periodo": {
     "type": "switch",
     "default": true,
-    "description": "Esconder IA que não está instalada"
+    "description": "Letra do período depois da % (H horas, D dia, S semana, M mês)"
   }
 }

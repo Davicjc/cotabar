@@ -10,7 +10,8 @@ Cada IA é um anel duplo com a letra dela no meio:
 
 - **anel de fora** = janela longa (semana ou mês)
 - **anel de dentro** = janela curta (5 h ou dia)
-- ao lado, os dois números; ficam amarelos a partir de 80% e vermelhos a partir de 95%
+- ao lado, os dois números com a letra do período — **H** horas, **D** dia, **S** semana,
+  **M** mês (ex.: `84% H` / `61% S`); ficam amarelos a partir de 80% e vermelhos a partir de 95%
 
 Clicando, abre o detalhe de cada limite com barra, porcentagem e quando reinicia
 ("em 4 h 47 min · 13:10").
@@ -66,17 +67,18 @@ O applet entra no painel na hora (sem reiniciar o Cinnamon). Para tirar:
 
 ### Configurações
 
-Botão direito no applet → **Configurar**:
+Botão direito no applet → **Configurar**. Tudo é chave ou lista, nada para digitar:
 
-| Opção | Padrão |
-|---|---|
-| Rodar o coletor como este usuário | ligado |
-| Provedores lidos por este usuário | `claude,agy,codex,copilot` |
-| Consultar a cada | 5 min |
-| Números ao lado do anel | curta e longa |
-| Esconder IA que não está instalada | ligado |
+| Aba | Opção | Padrão |
+|---|---|---|
+| IAs | Claude Code / Antigravity / Codex / GitHub Copilot (uma chave cada) | ligadas |
+| IAs | Esconder as que não estão instaladas | ligado |
+| IAs | Ler as IAs logadas neste usuário | ligado |
+| IAs | Consultar a cada | 5 min |
+| Barra | Números ao lado do anel (curta e longa / só curta / só longa / só anéis) | curta e longa |
+| Barra | Letra do período depois da % | ligado |
 
-Usando o timer do root para Claude e agy, deixe só `copilot,codex` no usuário.
+Se a mesma IA vem do usuário e do timer do root, o applet fica com a leitura boa mais recente.
 
 ### Rodar o coletor à mão
 

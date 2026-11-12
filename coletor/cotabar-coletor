@@ -25,7 +25,7 @@ import tempfile
 import urllib.error
 import urllib.request
 
-VERSAO = "0.1.0"
+VERSAO = "0.2.0"
 TIMEOUT = 15
 UA = f"cotabar/{VERSAO} (+https://github.com/Davicjc/cotabar)"
 
@@ -81,12 +81,14 @@ def pct(valor):
     return round(max(0.0, min(100.0, v)), 1)
 
 
-def janela(id_, rotulo, tipo, usado, reinicia=None, detalhe=None):
-    """tipo: 'curta' (5 h / dia) ou 'longa' (semana / mês)."""
+def janela(id_, rotulo, periodo, usado, reinicia=None, detalhe=None):
+    """periodo: 'H' (horas), 'D' (dia), 'S' (semana) ou 'M' (mês).
+    tipo sai dele: H/D = 'curta', S/M = 'longa'."""
     u = pct(usado)
     if u is None:
         return None
-    j = {"id": id_, "rotulo": rotulo, "tipo": tipo, "usado": u,
+    j = {"id": id_, "rotulo": rotulo, "periodo": periodo,
+         "tipo": "curta" if periodo in ("H", "D") else "longa", "usado": u,
          "reinicia": iso(ler_data(reinicia))}
     if detalhe:
         j["detalhe"] = detalhe
@@ -160,29 +162,29 @@ def janelas_claude(d):
         tipo_api = lim.get("kind") or ""
         escopo = ((lim.get("scope") or {}).get("model") or {}).get("display_name")
         if tipo_api == "session":
-            j = janela("sessao", "Sessão (5 h)", "curta", lim.get("percent"), lim.get("resets_at"))
+            j = janela("sessao", "Sessão (5 h)", "H", lim.get("percent"), lim.get("resets_at"))
         elif tipo_api == "weekly_all":
-            j = janela("semana", "Semana", "longa", lim.get("percent"), lim.get("resets_at"))
+            j = janela("semana", "Semana", "S", lim.get("percent"), lim.get("resets_at"))
         elif tipo_api.startswith("weekly"):
             nome = escopo or tipo_api.replace("weekly_", "")
-            j = janela(f"semana-{nome.lower()}", f"Semana · {nome}", "longa",
+            j = janela(f"semana-{nome.lower()}", f"Semana · {nome}", "S",
                        lim.get("percent"), lim.get("resets_at"))
         else:
             continue
         if j:
             out.append(j)
     if not limites:  # formato antigo
-        for chave, id_, rot, tipo in (("five_hour", "sessao", "Sessão (5 h)", "curta"),
-                                      ("seven_day", "semana", "Semana", "longa"),
-                                      ("seven_day_opus", "semana-opus", "Semana · Opus", "longa"),
-                                      ("seven_day_sonnet", "semana-sonnet", "Semana · Sonnet", "longa")):
+        for chave, id_, rot, tipo in (("five_hour", "sessao", "Sessão (5 h)", "H"),
+                                      ("seven_day", "semana", "Semana", "S"),
+                                      ("seven_day_opus", "semana-opus", "Semana · Opus", "S"),
+                                      ("seven_day_sonnet", "semana-sonnet", "Semana · Sonnet", "S")):
             w = d.get(chave) or {}
             j = janela(id_, rot, tipo, w.get("utilization"), w.get("resets_at"))
             if j:
                 out.append(j)
     extra = d.get("extra_usage") or {}
     if extra.get("is_enabled") and extra.get("utilization") is not None:
-        j = janela("extra", "Uso extra (mês)", "longa", extra.get("utilization"))
+        j = janela("extra", "Uso extra (mês)", "M", extra.get("utilization"))
         if j:
             out.append(j)
     if not out:
@@ -192,15 +194,21 @@ def janelas_claude(d):
 
 def claude_statusline(home):
     """Reserva: números que a status line do Claude Code guardou (skill agy)."""
-    d = ler_json(os.path.join(home, ".cache", "agy-skill", "cota.json"))
-    if not d:
+    try:
+        d = ler_json(os.path.join(home, ".cache", "agy-skill", "cota.json"))
+    except Falha:
         return None
-    salvo = d.get("salvo_em")
-    if not salvo or agora().timestamp() - float(salvo) > VALIDADE_ANTIGA_S:
+    if not isinstance(d, dict):
+        return None
+    try:
+        salvo = float(d.get("salvo_em") or 0)
+    except (TypeError, ValueError):
+        return None
+    if not salvo or agora().timestamp() - salvo > VALIDADE_ANTIGA_S:
         return None
     out = []
-    for chave, id_, rot, tipo in (("sessao", "sessao", "Sessão (5 h)", "curta"),
-                                  ("semana", "semana", "Semana", "longa")):
+    for chave, id_, rot, tipo in (("sessao", "sessao", "Sessão (5 h)", "H"),
+                                  ("semana", "semana", "Semana", "S")):
         w = d.get(chave) or {}
         j = janela(id_, rot, tipo, w.get("pct"), w.get("reset"))
         if j:
@@ -268,10 +276,11 @@ def janelas_agy(d):
             if not isinstance(resta, (int, float)):
                 continue
             jan = (b.get("window") or "").lower()
-            curta = jan in ("5h", "hourly", "daily", "day")
+            per = {"daily": "D", "day": "D", "weekly": "S", "week": "S",
+                   "monthly": "M", "month": "M"}.get(jan, "H" if jan.endswith("h") or jan == "hourly" else "S")
             rot_j = {"5h": "5 h", "weekly": "semana", "daily": "dia", "monthly": "mês"}.get(jan, jan or "limite")
             j = janela(b.get("bucketId") or f"{nome}-{jan}", f"{nome} · {rot_j}",
-                       "curta" if curta else "longa", (1 - float(resta)) * 100, b.get("resetTime"))
+                       per, (1 - float(resta)) * 100, b.get("resetTime"))
             if j:
                 out.append(j)
     return out
@@ -293,14 +302,14 @@ def rotulo_segundos(seg, padrao):
     try:
         seg = float(seg)
     except (TypeError, ValueError):
-        return padrao, "curta"
+        return padrao, ("H" if padrao.endswith("h") else "S")
     if seg <= 6 * 3600:
-        return f"{round(seg / 3600)} h", "curta"
+        return f"{round(seg / 3600)} h", "H"
     if seg <= 26 * 3600:
-        return "dia", "curta"
+        return "dia", "D"
     if seg <= 8 * 86400:
-        return "semana", "longa"
-    return "mês", "longa"
+        return "semana", "S"
+    return "mês", "M"
 
 
 def janelas_codex(d):
@@ -317,7 +326,7 @@ def janelas_codex(d):
             out.append(j)
     if not out:
         cred = ((d.get("spend_control") or {}).get("individual_limit")) or {}
-        j = janela("creditos", "Créditos", "longa", cred.get("used_percent"), cred.get("reset_at"))
+        j = janela("creditos", "Créditos", "M", cred.get("used_percent"), cred.get("reset_at"))
         if j:
             out.append(j)
     if not out:
@@ -357,8 +366,15 @@ def janelas_copilot(d):
             continue
         detalhe = None
         if q.get("entitlement"):
-            detalhe = f"{q.get('remaining', 0):g} de {q['entitlement']:g} restantes"
-        j = janela(qid, nomes.get(qid, f"{qid} (mês)"), "longa", 100 - float(resta), reinicia, detalhe)
+            try:
+                detalhe = f"{float(q.get('remaining') or 0):g} de {float(q['entitlement']):g} restantes"
+            except (TypeError, ValueError):
+                detalhe = None
+        try:
+            usado = 100 - float(resta)
+        except (TypeError, ValueError):
+            continue
+        j = janela(qid, nomes.get(qid, f"{qid} (mês)"), "M", usado, reinicia, detalhe)
         if j:
             out.append(j)
     if not out:
@@ -375,6 +391,18 @@ PROVEDORES = {
 
 
 # ---------------------------------------------------------------- execução
+
+def reaproveitar(item, erro, id_, home, velho):
+    reserva = claude_statusline(home) if id_ == "claude" else None
+    idade = (agora() - (ler_data(velho.get("lido_em_ok")) or agora())).total_seconds()
+    if reserva:
+        item.update(janelas=reserva, fonte="status line do Claude Code")
+    elif velho.get("janelas") and (not erro.transitoria or idade < VALIDADE_ANTIGA_S):
+        # Token vencido = ferramenta parada desde então, então o uso não
+        # subiu; só zera o que já reiniciou. Erro de rede vale por 6 h.
+        item.update(janelas=envelhecer(velho["janelas"]), plano=velho.get("plano"),
+                    lido_em_ok=velho.get("lido_em_ok"), desatualizado=True)
+
 
 def envelhecer(janelas):
     """Copia leituras antigas zerando as janelas cujo reinício já passou."""
@@ -402,16 +430,10 @@ def coletar(nomes, home, anterior):
             item.update(estado="ausente", janelas=[])
         except Falha as e:
             item.update(estado="erro", erro=str(e), janelas=[])
-            reserva = claude_statusline(home) if id_ == "claude" else None
-            velho = prev.get(id_) or {}
-            idade = (agora() - (ler_data(velho.get("lido_em_ok")) or agora())).total_seconds()
-            if reserva:
-                item.update(janelas=reserva, fonte="status line do Claude Code")
-            elif velho.get("janelas") and (not e.transitoria or idade < VALIDADE_ANTIGA_S):
-                # Token vencido = ferramenta parada desde então, então o uso não
-                # subiu; só zera o que já reiniciou. Erro de rede vale por 6 h.
-                item.update(janelas=envelhecer(velho["janelas"]), plano=velho.get("plano"),
-                            lido_em_ok=velho.get("lido_em_ok"), desatualizado=True)
+            try:
+                reaproveitar(item, e, id_, home, prev.get(id_) or {})
+            except Exception:  # noqa: BLE001 — a reserva nunca derruba a coleta
+                pass
         except Exception as e:  # noqa: BLE001 — um provedor nunca derruba os outros
             item.update(estado="erro", erro=f"erro interno: {type(e).__name__}", janelas=[])
         if item["estado"] == "ok":

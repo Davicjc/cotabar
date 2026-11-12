@@ -166,29 +166,42 @@ function detalhe(j) {
     return j.detalhe || "";
 }
 
+// Leitura assíncrona: o painel nunca espera disco.
 function lerTexto(caminho) {
-    try {
-        const [ok, raw] = GLib.file_get_contents(caminho);
-        if (!ok) return null;
-        return typeof raw === "string" ? raw : ByteArray.toString(raw);
-    } catch (e) {
-        return null;
-    }
+    return new Promise(resolve => {
+        Gio.File.new_for_path(caminho).load_contents_async(null, (arquivo, res) => {
+            try {
+                const [, bytes] = arquivo.load_contents_finish(res);
+                resolve(ByteArray.toString(bytes));
+            } catch (e) {
+                resolve(null);
+            }
+        });
+    });
 }
 
 function listarJson(pasta) {
-    const out = [];
-    try {
+    return new Promise(resolve => {
         const dir = Gio.File.new_for_path(pasta);
-        const en = dir.enumerate_children("standard::name,standard::type", Gio.FileQueryInfoFlags.NONE, null);
-        let info;
-        while ((info = en.next_file(null)) !== null) {
-            const nome = info.get_name();
-            if (nome.endsWith(".json") && !nome.startsWith(".")) out.push(GLib.build_filenamev([pasta, nome]));
-        }
-        en.close(null);
-    } catch (e) { /* pasta ainda não existe */ }
-    return out;
+        dir.enumerate_children_async("standard::name", Gio.FileQueryInfoFlags.NONE,
+                                     GLib.PRIORITY_DEFAULT_IDLE, null, (d, res) => {
+            let en;
+            try {
+                en = d.enumerate_children_finish(res);
+            } catch (e) {
+                resolve([]);  // pasta ainda não existe
+                return;
+            }
+            en.next_files_async(100, GLib.PRIORITY_DEFAULT_IDLE, null, (e2, res2) => {
+                let infos = [];
+                try { infos = e2.next_files_finish(res2); } catch (e) { /* vazio */ }
+                en.close_async(GLib.PRIORITY_DEFAULT_IDLE, null, null);
+                resolve(infos.map(i => i.get_name())
+                    .filter(n => n.endsWith(".json") && !n.startsWith("."))
+                    .map(n => GLib.build_filenamev([pasta, n])));
+            });
+        });
+    });
 }
 
 function tempo(iso) {
@@ -206,13 +219,13 @@ function peso(p) {
 }
 
 // Junta os provedores de todos os arquivos: vence a leitura boa e recente, depois a mais nova.
-function juntar(lerUsuario) {
+async function juntar(lerUsuario) {
     const melhor = {};
     for (const pasta of PASTAS_FONTES) {
         if (pasta === PASTA_USUARIO && !lerUsuario) continue;
-        for (const arq of listarJson(pasta)) {
+        for (const arq of await listarJson(pasta)) {
             let dados;
-            try { dados = JSON.parse(lerTexto(arq) || "null"); } catch (e) { continue; }
+            try { dados = JSON.parse((await lerTexto(arq)) || "null"); } catch (e) { continue; }
             if (!dados || !Array.isArray(dados.provedores)) continue;
             for (const p of dados.provedores) {
                 p._coletor = dados.coletor;
@@ -471,9 +484,25 @@ class CotaBarApplet extends Applet.Applet {
     // ------------------------------------------------------------ barra
 
     _ler() {
-        this.provedores = juntar(this.coletar);
-        this._desenhar();
-        if (this.menu.isOpen) this._montarMenu();
+        if (this._lendo) {
+            this._releitura = true;
+            return;
+        }
+        this._lendo = true;
+        juntar(this.coletar).then(provedores => {
+            this._lendo = false;
+            if (this._removido) return;
+            this.provedores = provedores;
+            this._desenhar();
+            if (this.menu.isOpen) this._montarMenu();
+            if (this._releitura) {
+                this._releitura = false;
+                this._ler();
+            }
+        }).catch(e => {
+            this._lendo = false;
+            global.logError("CotaBar: " + e);
+        });
     }
 
     _visiveis() {

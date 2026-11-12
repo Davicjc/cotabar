@@ -96,7 +96,7 @@
     "type": "switch",
     "default": true,
     "description": "Read the AIs signed in on this user",
-    "tooltip": "The system timer (sudo ./instalar.sh --root) reads the ones signed in as root. Both readings are merged automatically."
+    "tooltip": "Turn this off if another process already writes the readings to /var/lib/cotabar."
   },
   "intervalo": {
     "type": "spinbutton",

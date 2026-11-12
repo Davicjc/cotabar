@@ -46,8 +46,8 @@ msgstr "Esconder as que não estão instaladas"
 msgid "Read the AIs signed in on this user"
 msgstr "Ler as IAs logadas neste usuário"
 
-msgid "The system timer (sudo ./instalar.sh --root) reads the ones signed in as root. Both readings are merged automatically."
-msgstr "O timer do sistema (sudo ./instalar.sh --root) lê as logadas como root. As duas leituras se juntam sozinhas."
+msgid "Turn this off if another process already writes the readings to /var/lib/cotabar."
+msgstr "Desligue se outro processo já grava as leituras em /var/lib/cotabar."
 
 msgid "Check every"
 msgstr "Consultar a cada"
@@ -82,8 +82,8 @@ msgstr "Automático (sistema)"
 msgid "Open on GitHub"
 msgstr "Abrir no GitHub"
 
-msgid "See how much of your Claude Code, Codex, Antigravity and GitHub Copilot limits you've used — 5-hour, weekly and monthly windows right on the panel"
-msgstr "Veja quanto já usou das cotas do Claude Code, Codex, Antigravity e GitHub Copilot — janelas de 5 h, semana e mês direto na barra"
+msgid "See how much of your Claude Code, Codex, Antigravity and GitHub Copilot usage limits you have used: 5-hour, weekly and monthly windows right on the panel"
+msgstr "Veja quanto já usou dos limites do Claude Code, Codex, Antigravity e GitHub Copilot: janelas de 5 h, semana e mês direto na barra"
 
 msgid "CotaBar"
 msgstr "CotaBar"
